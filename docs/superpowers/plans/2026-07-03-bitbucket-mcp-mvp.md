@@ -118,7 +118,7 @@ def register(mcp: FastMCP, client: BitbucketClient, *, read_only: bool,
              default_workspace: str | None = None) -> None: ...
 
 # server.py
-def create_server(settings: Settings, *, host: str = "127.0.0.1", port: int = 8000) -> tuple[FastMCP, BitbucketClient]: ...
+def create_server(settings: Settings, *, host: str = "127.0.0.1", port: int = 8000) -> FastMCP: ...
 
 # toolsets/__init__.py
 TOOLSET_REGISTRY: dict[str, Callable[..., None]]
@@ -458,7 +458,7 @@ def resolve_auth_header(settings: Settings) -> str:
     if settings.token:
         return f"Bearer {settings.token}"
     raise AuthConfigError(
-        "認証情報がありません。App Password は廃止されました（2026-07-28）。"
+        "認証情報がありません。App Password は非対応です（2026-07-28 に完全廃止予定です）。
         " API Token(BITBUCKET_EMAIL + BITBUCKET_API_TOKEN)または"
         " Access Token(BITBUCKET_TOKEN)を設定してください。"
     )
@@ -772,6 +772,16 @@ async def test_retries_on_429_then_succeeds(httpx_mock: HTTPXMock) -> None:
     assert len(httpx_mock.get_requests()) == 2
 
 
+async def test_no_retry_on_post_5xx(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(status_code=502)
+    httpx_mock.add_response(status_code=200, json={"ok": True})
+    client = _client()
+    with pytest.raises(ToolError, match="502"):
+        await client.request("POST", "/x", body={"name": "repo"})
+    await client.aclose()
+    assert len(httpx_mock.get_requests()) == 1
+
+
 async def test_request_text_returns_raw_text(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(text="diff --git a b")
     client = _client()
@@ -798,7 +808,8 @@ import httpx
 
 from bitbucket_mcp.errors import build_tool_error
 
-_RETRY_STATUSES = {429, 500, 502, 503, 504}
+_RETRY_STATUSES = {429, 502, 503, 504}
+_RETRYABLE_METHODS = {"GET", "HEAD"}
 
 
 class BitbucketClient:
@@ -835,7 +846,11 @@ class BitbucketClient:
             response = await self._client.request(
                 method, path, params=query, json=json, data=data
             )
-            if response.status_code in _RETRY_STATUSES and attempt < self._max_retries:
+            if (
+                response.status_code in _RETRY_STATUSES
+                and method.upper() in _RETRYABLE_METHODS
+                and attempt < self._max_retries
+            ):
                 await asyncio.sleep(self._backoff_base * (2**attempt))
                 attempt += 1
                 continue
@@ -906,14 +921,14 @@ class BitbucketClient:
 - [ ] **Step 4: テストが通ることを確認**
 
 Run: `uv run pytest tests/test_client.py -v`
-Expected: PASS(7 件）
+Expected: PASS(8 件）
 
 - [ ] **Step 5: 静的解析 & コミット**
 
 ```bash
 uv run ruff check . && uv run basedpyright
 git add src/bitbucket_mcp/client.py tests/test_client.py
-git commit -m "feat: BitbucketClient(httpx ラッパ・リトライ・エラー変換）を追加"
+git commit -m "feat: BitbucketClient(httpx ラッパ・リトライ・エラー変換）を追加。GET/HEAD のみリトライ"
 ```
 
 ---
@@ -2981,7 +2996,7 @@ git commit -m "feat: bitbucket_api エスケープハッチを追加"
 
 **Interfaces:**
 - Consumes: 全 toolset の `register`(Task 7-15）/ `resolve_auth_header`(Task 3）/ `BitbucketClient`(Task 6）/ `Settings`(Task 2）
-- Produces: `TOOLSET_REGISTRY: dict[str, Callable[..., None]]` / `DEFAULT_TOOLSETS: list[str]` / `create_server(settings, *, host='127.0.0.1', port=8000) -> tuple[FastMCP, BitbucketClient]`
+- Produces: `TOOLSET_REGISTRY: dict[str, Callable[..., None]]` / `DEFAULT_TOOLSETS: list[str]` / `create_server(settings, *, host='127.0.0.1', port=8000) -> FastMCP`
 
 - [ ] **Step 1: 失敗するテストを書く**
 
@@ -3007,11 +3022,8 @@ def test_registry_has_all_default_toolsets() -> None:
 
 async def test_create_server_registers_default_tools_and_raw_api() -> None:
     settings = Settings(token="t")
-    mcp, client = create_server(settings)
-    try:
-        names = {tool.name for tool in await mcp.list_tools()}
-    finally:
-        await client.aclose()
+    mcp = create_server(settings)
+    names = {tool.name for tool in await mcp.list_tools()}
     assert "get_current_user" in names
     assert "list_repositories" in names
     assert "bitbucket_api" in names
@@ -3019,11 +3031,8 @@ async def test_create_server_registers_default_tools_and_raw_api() -> None:
 
 async def test_create_server_respects_toolsets_selection() -> None:
     settings = Settings(token="t", toolsets="context,users")
-    mcp, client = create_server(settings)
-    try:
-        names = {tool.name for tool in await mcp.list_tools()}
-    finally:
-        await client.aclose()
+    mcp = create_server(settings)
+    names = {tool.name for tool in await mcp.list_tools()}
     assert "get_current_user" in names
     assert "get_user" in names
     assert "list_repositories" not in names
@@ -3032,11 +3041,8 @@ async def test_create_server_respects_toolsets_selection() -> None:
 
 async def test_create_server_read_only_excludes_write_tools() -> None:
     settings = Settings(token="t", read_only=True)
-    mcp, client = create_server(settings)
-    try:
-        names = {tool.name for tool in await mcp.list_tools()}
-    finally:
-        await client.aclose()
+    mcp = create_server(settings)
+    names = {tool.name for tool in await mcp.list_tools()}
     assert "create_repository" not in names
     assert "merge_pull_request" not in names
     assert "get_repository" in names
@@ -3044,11 +3050,8 @@ async def test_create_server_read_only_excludes_write_tools() -> None:
 
 async def test_create_server_can_exclude_raw_api() -> None:
     settings = Settings(token="t", toolsets="context,-bitbucket_api")
-    mcp, client = create_server(settings)
-    try:
-        names = {tool.name for tool in await mcp.list_tools()}
-    finally:
-        await client.aclose()
+    mcp = create_server(settings)
+    names = {tool.name for tool in await mcp.list_tools()}
     assert "bitbucket_api" not in names
     assert "get_current_user" in names
 ```
@@ -3100,7 +3103,8 @@ DEFAULT_TOOLSETS: list[str] = [
 `bitbucket_api` は `toolset_list` に `-bitbucket_api` が含まれない限り常時登録する。
 
 ```python
-"""FastMCP サーバーの生成・toolset 登録。"""
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from mcp.server.fastmcp import FastMCP
 
@@ -3109,37 +3113,49 @@ from bitbucket_mcp.client import BitbucketClient
 from bitbucket_mcp.config import Settings
 from bitbucket_mcp.toolsets import TOOLSET_REGISTRY, raw_api
 
+_settings: Settings | None = None
 _RAW_API_EXCLUDE = "-bitbucket_api"
 
 
-def create_server(
-    settings: Settings, *, host: str = "127.0.0.1", port: int = 8000
-) -> tuple[FastMCP, BitbucketClient]:
-    """設定から FastMCP サーバーと BitbucketClient を構築する。"""
-    auth_header = resolve_auth_header(settings)
-    client = BitbucketClient(base_url=settings.base_url, auth_header=auth_header)
-    mcp = FastMCP("bitbucket-mcp", host=host, port=port)
+@asynccontextmanager
+async def lifespan(mcp: FastMCP) -> AsyncIterator[BitbucketClient]:
+    """httpx クライアントをサーバー稼働期間だけ保持し、終了時に閉じる。"""
+    if _settings is None:
+        raise RuntimeError("create_server() で settings が設定されていません")
+    auth_header = resolve_auth_header(_settings)
+    client = BitbucketClient(base_url=_settings.base_url, auth_header=auth_header)
 
-    requested = settings.toolset_list
+    requested = _settings.toolset_list
     for name in requested:
         register_fn = TOOLSET_REGISTRY.get(name)
         if register_fn is not None:
             register_fn(
                 mcp,
                 client,
-                read_only=settings.read_only,
-                default_workspace=settings.default_workspace,
+                read_only=_settings.read_only,
+                default_workspace=_settings.default_workspace,
             )
 
     if _RAW_API_EXCLUDE not in requested:
         raw_api.register(
             mcp,
             client,
-            read_only=settings.read_only,
-            default_workspace=settings.default_workspace,
+            read_only=_settings.read_only,
+            default_workspace=_settings.default_workspace,
         )
 
-    return mcp, client
+    try:
+        yield client
+    finally:
+        await client.aclose()
+
+def create_server(
+    settings: Settings, *, host: str = "127.0.0.1", port: int = 8000
+) -> FastMCP:
+    """設定から FastMCP サーバーを構築する。"""
+    global _settings
+    _settings = settings
+    return FastMCP("bitbucket-mcp", host=host, port=port, lifespan=lifespan)
 ```
 
 - [ ] **Step 5: テストが通ることを確認**
@@ -3253,11 +3269,11 @@ def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
     try:
         settings = Settings()
-        mcp, _client = create_server(settings, host=args.host, port=args.port)
     except AuthConfigError as exc:
         print(str(exc), file=sys.stderr)
         return 2
     transport = "streamable-http" if args.transport == "http" else "stdio"
+    mcp = create_server(settings, host=args.host, port=args.port)
     mcp.run(transport=transport)
     return 0
 
@@ -3276,7 +3292,7 @@ Expected: PASS(4 件）
 認証情報なしでエラー終了を確認:
 
 Run: `uv run python -m bitbucket_mcp --transport stdio`
-Expected: stderr に App Password 廃止案内を含むメッセージを出し、終了コード 2 で終了（`echo $?` で 2）。
+Expected: stderr に App Password 非対応案内を含むメッセージを出し、終了コード 2 で終了（`echo $?` で 2）。
 
 ダミートークンで stdio 起動を確認（tools/list が応答すること）:
 
@@ -3350,7 +3366,7 @@ uv run python -m bitbucket_mcp
 1. `BITBUCKET_EMAIL` + `BITBUCKET_API_TOKEN` → Basic 認証
 2. `BITBUCKET_TOKEN`(Access Token / OAuth Bearer）→ Bearer 認証
 
-**App Password は非対応**（2026-07-28 完全廃止）。API Token または Access Token を使用してください。
+**App Password は非対応です**（2026-07-28 に完全廃止予定）。API Token または Access Token を使用してください。
 
 ## 環境変数
 
