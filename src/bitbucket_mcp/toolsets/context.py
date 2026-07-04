@@ -3,6 +3,7 @@
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from bitbucket_mcp.client import BitbucketClient
@@ -31,7 +32,9 @@ def register(
         """List workspaces the authenticated user is a member of."""
         query: dict[str, Any] = page_params(page, pagelen)
         effective_q = q
-        if administrator and not effective_q:
+        if administrator and effective_q:
+            raise ToolError("administrator と q は同時指定できません。")
+        if administrator:
             effective_q = 'permission="owner"'
         if effective_q:
             query["q"] = effective_q

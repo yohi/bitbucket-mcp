@@ -3,6 +3,7 @@
 from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from bitbucket_mcp.client import BitbucketClient
@@ -119,10 +120,11 @@ def register(
         q: str | None = None,
         sort: str | None = None,
         page: int | None = None,
+        pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List branches in a repository."""
         ws = resolve_workspace(workspace, default_workspace)
-        query: dict[str, Any] = page_params(page)
+        query: dict[str, Any] = page_params(page, pagelen)
         if q:
             query["q"] = q
         if sort:
@@ -138,10 +140,11 @@ def register(
         q: str | None = None,
         sort: str | None = None,
         page: int | None = None,
+        pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List tags in a repository."""
         ws = resolve_workspace(workspace, default_workspace)
-        query: dict[str, Any] = page_params(page)
+        query: dict[str, Any] = page_params(page, pagelen)
         if q:
             query["q"] = q
         if sort:
@@ -216,6 +219,11 @@ def register(
     ) -> dict[str, Any]:
         """Create a commit by writing files on a branch."""
         ws = resolve_workspace(workspace, default_workspace)
+        reserved_fields = {"message", "branch"}
+        conflict = reserved_fields.intersection(files)
+        if conflict:
+            joined = ", ".join(sorted(conflict))
+            raise ToolError(f"files に予約済みフィールド名が含まれています: {joined}")
         form: dict[str, Any] = {"message": message}
         if branch:
             form["branch"] = branch

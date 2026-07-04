@@ -136,6 +136,55 @@ async def test_create_commit_sends_form(
     assert "a.txt=hello" in body
 
 
+async def test_create_commit_rejects_reserved_file_names(
+    register_toolset, call_tool
+) -> None:
+    mcp, _ = register_toolset(repos.register, default_workspace="ws1")
+    with pytest.raises(ToolError, match=r"message|branch"):
+        await call_tool(
+            mcp,
+            "create_commit",
+            {
+                "repo_slug": "r",
+                "message": "msg",
+                "branch": "main",
+                "files": {"message": "hello"},
+            },
+        )
+
+
+async def test_list_branches_supports_pagelen(
+    register_toolset, call_tool, httpx_mock: HTTPXMock
+) -> None:
+    httpx_mock.add_response(json={"values": []})
+    mcp, _ = register_toolset(repos.register, default_workspace="ws1")
+    await call_tool(
+        mcp,
+        "list_branches",
+        {"repo_slug": "r", "pagelen": 10},
+    )
+    request = httpx_mock.get_request()
+    assert request is not None
+    assert request.url.path == "/2.0/repositories/ws1/r/refs/branches"
+    assert request.url.params["pagelen"] == "10"
+
+
+async def test_list_tags_supports_pagelen(
+    register_toolset, call_tool, httpx_mock: HTTPXMock
+) -> None:
+    httpx_mock.add_response(json={"values": []})
+    mcp, _ = register_toolset(repos.register, default_workspace="ws1")
+    await call_tool(
+        mcp,
+        "list_tags",
+        {"repo_slug": "r", "pagelen": 10},
+    )
+    request = httpx_mock.get_request()
+    assert request is not None
+    assert request.url.path == "/2.0/repositories/ws1/r/refs/tags"
+    assert request.url.params["pagelen"] == "10"
+
+
 async def test_delete_branch_path(
     register_toolset, call_tool, httpx_mock: HTTPXMock
 ) -> None:

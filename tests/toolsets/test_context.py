@@ -1,3 +1,5 @@
+import pytest
+from mcp.server.fastmcp.exceptions import ToolError
 from pytest_httpx import HTTPXMock
 
 from bitbucket_mcp.toolsets import context
@@ -39,6 +41,14 @@ async def test_list_workspaces_administrator_filter(
     request = httpx_mock.get_request()
     assert request is not None
     assert request.url.params["q"] == 'permission="owner"'
+
+
+async def test_list_workspaces_rejects_administrator_with_q(
+    register_toolset, call_tool
+) -> None:
+    mcp, _ = register_toolset(context.register)
+    with pytest.raises(ToolError, match=r"administrator|q"):
+        await call_tool(mcp, "list_workspaces", {"administrator": True, "q": "foo"})
 
 
 async def test_context_registers_expected_tools_with_annotations(
