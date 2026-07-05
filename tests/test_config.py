@@ -42,7 +42,11 @@ def test_credentials_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_credentials_repr_masks_secrets() -> None:
-    settings = Settings(token="alpha123", email="a@b.com", api_token="beta456")
+    settings = Settings(
+        token=SecretStr("alpha123"),
+        email="a@b.com",
+        api_token=SecretStr("beta456"),
+    )
     text = repr(settings)
     assert "alpha123" not in text
     assert "beta456" not in text
