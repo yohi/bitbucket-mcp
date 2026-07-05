@@ -94,7 +94,7 @@ def register(
             "title": title,
             "source": {"branch": {"name": source_branch}},
         }
-        if destination_branch:
+        if destination_branch is not None:
             body["destination"] = {"branch": {"name": destination_branch}}
         if description:
             body["description"] = description

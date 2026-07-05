@@ -1,9 +1,9 @@
 """Bitbucket API への HTTP アクセスを担う httpx ラッパ。"""
 
-import asyncio
 from types import TracebackType
 from typing import Any, NoReturn
 
+import anyio
 import httpx
 
 from bitbucket_mcp.errors import build_tool_error
@@ -42,16 +42,27 @@ class BitbucketClient:
         data: dict[str, Any] | None = None,
     ) -> httpx.Response:
         attempt = 0
+        method_upper = method.upper()
         while True:
-            response = await self._client.request(
-                method, path, params=query, json=json, data=data
-            )
+            try:
+                response = await self._client.request(
+                    method, path, params=query, json=json, data=data
+                )
+            except httpx.RequestError:
+                if (
+                    method_upper in _RETRYABLE_METHODS
+                    and attempt < self._max_retries
+                ):
+                    await anyio.sleep(self._backoff_base * (2**attempt))
+                    attempt += 1
+                    continue
+                raise
             if (
                 response.status_code in _RETRY_STATUSES
-                and method.upper() in _RETRYABLE_METHODS
+                and method_upper in _RETRYABLE_METHODS
                 and attempt < self._max_retries
             ):
-                await asyncio.sleep(self._backoff_base * (2**attempt))
+                await anyio.sleep(self._backoff_base * (2**attempt))
                 attempt += 1
                 continue
             return response
@@ -100,7 +111,7 @@ class BitbucketClient:
         raise build_tool_error(
             response.status_code,
             payload,
-            retry_after=response.headers.get("X-RateLimit-Reset"),
+            retry_after=response.headers.get("Retry-After"),
         )
 
     async def aclose(self) -> None:

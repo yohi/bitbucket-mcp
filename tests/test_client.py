@@ -1,3 +1,4 @@
+import httpx
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 from pytest_httpx import HTTPXMock
@@ -89,6 +90,31 @@ async def test_no_retry_on_post_5xx(httpx_mock: HTTPXMock) -> None:
         await client.request("POST", "/x", body={"name": "repo"})
     await client.aclose()
     assert len(httpx_mock.get_requests()) == 1
+
+
+async def test_retries_on_connect_error_for_get(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = _client()
+    attempts = 0
+
+    async def fake_request(
+        method: str,
+        path: str,
+        params: dict[str, object] | None = None,
+        json: dict[str, object] | None = None,
+        data: dict[str, object] | None = None,
+    ) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        request = httpx.Request(method, f"{BASE_URL}{path}")
+        if attempts == 1:
+            raise httpx.ConnectError("boom", request=request)
+        return httpx.Response(200, json={"ok": True}, request=request)
+
+    monkeypatch.setattr(client._client, "request", fake_request)
+    result = await client.request("GET", "/x")
+    await client.aclose()
+    assert result == {"ok": True}
+    assert attempts == 2
 
 
 async def test_request_text_returns_raw_text(httpx_mock: HTTPXMock) -> None:

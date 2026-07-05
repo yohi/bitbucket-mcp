@@ -110,6 +110,44 @@ async def test_merge_pull_request_destructive_and_path(
     assert request.read() == b'{"merge_strategy":"squash"}'
 
 
+async def test_update_pull_request_path_and_body(
+    register_toolset, call_tool, httpx_mock: HTTPXMock
+) -> None:
+    httpx_mock.add_response(json={"id": 7})
+    mcp, _ = register_toolset(pull_requests.register, default_workspace="ws1")
+    await call_tool(
+        mcp,
+        "update_pull_request",
+        {
+            "repo_slug": "r",
+            "pull_request_id": 7,
+            "title": "new title",
+            "destination_branch": "main",
+        },
+    )
+    request = httpx_mock.get_request()
+    assert request is not None
+    assert request.method == "PUT"
+    assert request.url.path == "/2.0/repositories/ws1/r/pullrequests/7"
+    assert request.read() == (
+        b'{"title":"new title","destination":{"branch":{"name":"main"}}}'
+    )
+
+
+async def test_decline_pull_request_path(
+    register_toolset, call_tool, httpx_mock: HTTPXMock
+) -> None:
+    httpx_mock.add_response(json={"state": "DECLINED"})
+    mcp, _ = register_toolset(pull_requests.register, default_workspace="ws1")
+    await call_tool(
+        mcp, "decline_pull_request", {"repo_slug": "r", "pull_request_id": 7}
+    )
+    request = httpx_mock.get_request()
+    assert request is not None
+    assert request.method == "POST"
+    assert request.url.path == "/2.0/repositories/ws1/r/pullrequests/7/decline"
+
+
 async def test_review_pull_request_approve_post(
     register_toolset, call_tool, httpx_mock: HTTPXMock
 ) -> None:

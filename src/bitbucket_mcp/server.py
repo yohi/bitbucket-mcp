@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -9,18 +10,26 @@ from bitbucket_mcp.config import Settings
 from bitbucket_mcp.toolsets import TOOLSET_REGISTRY, raw_api
 
 _RAW_API_EXCLUDE = "-bitbucket_api"
+logger = logging.getLogger(__name__)
 
 
 def make_lifespan(settings: Settings):
     @asynccontextmanager
     async def lifespan(mcp: FastMCP) -> AsyncGenerator[BitbucketClient, None]:
-        auth_header = resolve_auth_header(settings)
-        client = BitbucketClient(base_url=settings.base_url, auth_header=auth_header)
+        client: BitbucketClient | None = None
+        try:
+            auth_header = resolve_auth_header(settings)
+            client = BitbucketClient(
+                base_url=settings.base_url, auth_header=auth_header
+            )
 
-        requested = settings.toolset_list
-        for name in requested:
-            register_fn = TOOLSET_REGISTRY.get(name)
-            if register_fn is not None:
+            requested = settings.toolset_list
+            for name in requested:
+                register_fn = TOOLSET_REGISTRY.get(name)
+                if register_fn is None:
+                    if name != _RAW_API_EXCLUDE:
+                        logger.warning("Unknown toolset requested: %s", name)
+                    continue
                 register_fn(
                     mcp,
                     client,
@@ -28,18 +37,18 @@ def make_lifespan(settings: Settings):
                     default_workspace=settings.default_workspace,
                 )
 
-        if _RAW_API_EXCLUDE not in requested:
-            raw_api.register(
-                mcp,
-                client,
-                read_only=settings.read_only,
-                default_workspace=settings.default_workspace,
-            )
+            if _RAW_API_EXCLUDE not in requested:
+                raw_api.register(
+                    mcp,
+                    client,
+                    read_only=settings.read_only,
+                    default_workspace=settings.default_workspace,
+                )
 
-        try:
             yield client
         finally:
-            await client.aclose()
+            if client is not None:
+                await client.aclose()
 
     return lifespan
 

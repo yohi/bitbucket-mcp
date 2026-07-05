@@ -172,6 +172,22 @@ async def test_list_branches_supports_pagelen(
     assert request.url.params["pagelen"] == "10"
 
 
+async def test_list_commits_supports_pagelen(
+    register_toolset, call_tool, httpx_mock: HTTPXMock
+) -> None:
+    httpx_mock.add_response(json={"values": []})
+    mcp, _ = register_toolset(repos.register, default_workspace="ws1")
+    await call_tool(
+        mcp,
+        "list_commits",
+        {"repo_slug": "r", "pagelen": 10},
+    )
+    request = httpx_mock.get_request()
+    assert request is not None
+    assert request.url.path == "/2.0/repositories/ws1/r/commits"
+    assert request.url.params["pagelen"] == "10"
+
+
 async def test_list_tags_supports_pagelen(
     register_toolset, call_tool, httpx_mock: HTTPXMock
 ) -> None:

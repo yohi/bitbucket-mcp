@@ -1,3 +1,5 @@
+import pytest
+from mcp.server.fastmcp.exceptions import ToolError
 from pytest_httpx import HTTPXMock
 
 from bitbucket_mcp.toolsets import pipelines
@@ -53,6 +55,16 @@ async def test_get_pipeline_step_log_text(
     assert structured == {"content": "log output"}
 
 
+async def test_get_pipeline_step_log_requires_step_uuid(register_toolset, call_tool) -> None:
+    mcp, _ = register_toolset(pipelines.register, default_workspace="ws1")
+    with pytest.raises(ToolError, match="step_uuid"):
+        await call_tool(
+            mcp,
+            "get_pipeline",
+            {"repo_slug": "r", "pipeline_uuid": "{u}", "action": "step_log"},
+        )
+
+
 async def test_run_pipeline_body(
     register_toolset, call_tool, httpx_mock: HTTPXMock
 ) -> None:
@@ -73,6 +85,31 @@ async def test_run_pipeline_body(
     assert request.read() == (
         b'{"target":{"ref_type":"branch","ref_name":"main",'
         b'"type":"pipeline_ref_target"}}'
+    )
+
+
+async def test_run_pipeline_body_includes_selector(
+    register_toolset, call_tool, httpx_mock: HTTPXMock
+) -> None:
+    httpx_mock.add_response(json={"uuid": "{u}"})
+    mcp, _ = register_toolset(pipelines.register, default_workspace="ws1")
+    await call_tool(
+        mcp,
+        "run_pipeline",
+        {
+            "repo_slug": "r",
+            "target": {
+                "ref_type": "branch",
+                "ref_name": "main",
+                "selector": {"type": "custom"},
+            },
+        },
+    )
+    request = httpx_mock.get_request()
+    assert request is not None
+    assert request.read() == (
+        b'{"target":{"ref_type":"branch","ref_name":"main",'
+        b'"type":"pipeline_ref_target","selector":{"type":"custom"}}}'
     )
 
 

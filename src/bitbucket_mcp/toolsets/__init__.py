@@ -22,11 +22,4 @@ TOOLSET_REGISTRY: dict[str, RegisterFn] = {
     "users": users.register,
 }
 
-DEFAULT_TOOLSETS: list[str] = [
-    "context",
-    "repos",
-    "pull_requests",
-    "issues",
-    "pipelines",
-    "users",
-]
+DEFAULT_TOOLSETS: list[str] = list(TOOLSET_REGISTRY)

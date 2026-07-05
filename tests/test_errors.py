@@ -35,3 +35,8 @@ def test_handles_missing_payload() -> None:
 def test_retry_after_included_for_429() -> None:
     err = build_tool_error(429, {"error": {"message": "Rate"}}, retry_after="1700000000")
     assert "1700000000" in str(err)
+
+
+def test_retry_after_omitted_when_invalid() -> None:
+    err = build_tool_error(429, {"error": {"message": "Rate"}}, retry_after="oops")
+    assert "retry after" not in str(err)

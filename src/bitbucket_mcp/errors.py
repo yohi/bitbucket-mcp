@@ -13,6 +13,17 @@ _STATUS_HINTS: dict[int, str] = {
 }
 
 
+def _valid_retry_after(retry_after: str | None) -> str | None:
+    if retry_after is None:
+        return None
+    value = retry_after.strip()
+    if not value or not value.isdigit():
+        return None
+    if int(value) <= 0:
+        return None
+    return value
+
+
 def build_tool_error(
     status_code: int,
     payload: dict[str, Any] | None,
@@ -34,6 +45,7 @@ def build_tool_error(
     hint = _STATUS_HINTS.get(status_code)
     if hint:
         text += f" [{hint}]"
-    if status_code == 429 and retry_after:
-        text += f" (retry after {retry_after})"
+    valid_retry_after = _valid_retry_after(retry_after)
+    if status_code == 429 and valid_retry_after:
+        text += f" (retry after {valid_retry_after})"
     return ToolError(text)

@@ -40,7 +40,7 @@ uv run python -m bitbucket_mcp
 
 ## CLI
 
-```
+```bash
 bitbucket-mcp --transport {stdio,http} [--host HOST] [--port PORT]
 ```
 

@@ -1,5 +1,8 @@
+import pytest
+from mcp.server.fastmcp import FastMCP
+
 from bitbucket_mcp.config import Settings
-from bitbucket_mcp.server import create_server
+from bitbucket_mcp.server import create_server, make_lifespan
 from bitbucket_mcp.toolsets import DEFAULT_TOOLSETS, TOOLSET_REGISTRY
 
 
@@ -18,7 +21,7 @@ def test_registry_has_all_default_toolsets() -> None:
 async def test_create_server_registers_default_tools_and_raw_api() -> None:
     settings = Settings(token="t")
     mcp = create_server(settings)
-    async with mcp._mcp_server.lifespan(mcp._mcp_server):
+    async with make_lifespan(settings)(mcp):
         names = {tool.name for tool in await mcp.list_tools()}
     assert "get_current_user" in names
     assert "list_repositories" in names
@@ -28,7 +31,7 @@ async def test_create_server_registers_default_tools_and_raw_api() -> None:
 async def test_create_server_respects_toolsets_selection() -> None:
     settings = Settings(token="t", toolsets="context,users")
     mcp = create_server(settings)
-    async with mcp._mcp_server.lifespan(mcp._mcp_server):
+    async with make_lifespan(settings)(mcp):
         names = {tool.name for tool in await mcp.list_tools()}
     assert "get_current_user" in names
     assert "get_user" in names
@@ -39,7 +42,7 @@ async def test_create_server_respects_toolsets_selection() -> None:
 async def test_create_server_read_only_excludes_write_tools() -> None:
     settings = Settings(token="t", read_only=True)
     mcp = create_server(settings)
-    async with mcp._mcp_server.lifespan(mcp._mcp_server):
+    async with make_lifespan(settings)(mcp):
         names = {tool.name for tool in await mcp.list_tools()}
     assert "create_repository" not in names
     assert "merge_pull_request" not in names
@@ -49,7 +52,7 @@ async def test_create_server_read_only_excludes_write_tools() -> None:
 async def test_create_server_can_exclude_raw_api() -> None:
     settings = Settings(token="t", toolsets="context,-bitbucket_api")
     mcp = create_server(settings)
-    async with mcp._mcp_server.lifespan(mcp._mcp_server):
+    async with make_lifespan(settings)(mcp):
         names = {tool.name for tool in await mcp.list_tools()}
     assert "bitbucket_api" not in names
     assert "get_current_user" in names
@@ -60,7 +63,30 @@ async def test_create_server_uses_its_own_settings() -> None:
     second = Settings(token="t", toolsets="users")
     mcp_first = create_server(first)
     create_server(second)
-    async with mcp_first._mcp_server.lifespan(mcp_first._mcp_server):
+    async with make_lifespan(first)(mcp_first):
         names = {tool.name for tool in await mcp_first.list_tools()}
     assert "get_current_user" in names
     assert "get_user" not in names
+
+
+async def test_make_lifespan_closes_client_when_registration_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closed = False
+
+    class FakeClient:
+        async def aclose(self) -> None:
+            nonlocal closed
+            closed = True
+
+    def explode(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("bitbucket_mcp.server.BitbucketClient", lambda **_: FakeClient())
+    monkeypatch.setitem(TOOLSET_REGISTRY, "context", explode)
+
+    lifespan = make_lifespan(Settings(token="t"))
+    with pytest.raises(RuntimeError, match="boom"):
+        async with lifespan(FastMCP("bitbucket-mcp-test")):
+            pass
+    assert closed is True

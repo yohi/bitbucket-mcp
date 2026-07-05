@@ -40,3 +40,12 @@ def test_main_runs_stdio_when_credentials_present(
     monkeypatch.setattr("mcp.server.fastmcp.FastMCP.run", fake_run)
     assert entry.main(["--transport", "stdio"]) == 0
     assert called["transport"] == "stdio"
+
+
+def test_main_handles_settings_validation_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("BITBUCKET_READ_ONLY", "not-a-bool")
+    assert entry.main(["--transport", "stdio"]) == 2
+    captured = capsys.readouterr()
+    assert "設定" in captured.err

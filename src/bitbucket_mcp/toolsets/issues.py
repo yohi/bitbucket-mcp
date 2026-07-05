@@ -3,6 +3,7 @@
 from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from bitbucket_mcp.client import BitbucketClient
@@ -110,6 +111,8 @@ def register(
             body["priority"] = priority
         if assignee is not None:
             body["assignee"] = {"account_id": assignee}
+        if not body:
+            raise ToolError("update_issue には少なくとも1つの更新項目が必要です。")
         return await client.request(
             "PUT", f"/repositories/{ws}/{repo_slug}/issues/{issue_id}", body=body
         )

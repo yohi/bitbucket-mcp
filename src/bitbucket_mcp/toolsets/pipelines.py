@@ -46,6 +46,8 @@ def register(
         pipeline_uuid: str,
         action: Literal["details", "steps", "step_log"] = "details",
         step_uuid: str | None = None,
+        page: int | None = None,
+        pagelen: int | None = None,
     ) -> dict[str, Any]:
         """Get a pipeline, its steps, or a step log."""
         ws = resolve_workspace(workspace, default_workspace)
@@ -53,7 +55,11 @@ def register(
         if action == "details":
             return await client.request("GET", base)
         if action == "steps":
-            return await client.request("GET", f"{base}/steps")
+            return await client.request(
+                "GET",
+                f"{base}/steps",
+                query=page_params(page, pagelen),
+            )
         if step_uuid is None:
             raise ToolError("action='step_log' には step_uuid が必要です。")
         text = await client.request_text(

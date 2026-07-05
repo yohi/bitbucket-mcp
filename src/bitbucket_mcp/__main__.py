@@ -3,6 +3,8 @@
 import argparse
 import sys
 
+from pydantic import ValidationError
+
 from bitbucket_mcp.auth import AuthConfigError, resolve_auth_header
 from bitbucket_mcp.config import Settings
 from bitbucket_mcp.server import create_server
@@ -23,11 +25,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         settings = Settings()
         resolve_auth_header(settings)
-    except AuthConfigError as exc:
-        print(str(exc), file=sys.stderr)
+        mcp = create_server(settings, host=args.host, port=args.port)
+    except (AuthConfigError, ValidationError) as exc:
+        print(f"設定エラー: {exc}", file=sys.stderr)
         return 2
     transport = "streamable-http" if args.transport == "http" else "stdio"
-    mcp = create_server(settings, host=args.host, port=args.port)
     mcp.run(transport=transport)
     return 0
 

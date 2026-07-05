@@ -76,12 +76,11 @@ def register(
         revision: str | None = None,
         path: str | None = None,
         page: int | None = None,
+        pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List commits, optionally scoped to a revision or path."""
         ws = resolve_workspace(workspace, default_workspace)
-        query: dict[str, Any] = {}
-        if page is not None:
-            query["page"] = page
+        query: dict[str, Any] = page_params(page, pagelen)
         if path:
             query["path"] = path
         endpoint = f"/repositories/{ws}/{repo_slug}/commits"
