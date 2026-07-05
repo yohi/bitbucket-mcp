@@ -79,5 +79,5 @@ bitbucket-mcp --transport {stdio,http} [--host HOST] [--port PORT]
 
 ## 仕様詳細
 
-各ツールの詳細な引数、エラーハンドリング、リトライ仕様、および設計ポリシーについては [SPEC.md](file:///home/y_ohi/program/bitbucket-mcp/SPEC.md) を参照してください。
+各ツールの詳細な引数、エラーハンドリング、リトライ仕様、および設計ポリシーについては [SPEC.md](./SPEC.md) を参照してください。
 

@@ -57,5 +57,5 @@ uvx --from ./dist/*.whl bitbucket-mcp --help
 
 To keep this file lightweight and avoid context bloat, read the following specialized documents when working on tasks:
 
-- **API & Tool Specifications**: For details about specific tool parameters, error formatting, retry limits, and MCP annotations, see [SPEC.md](file:///home/y_ohi/program/bitbucket-mcp/SPEC.md).
-- **Setup & CLI Usage**: For environment variables, transport configurations (`stdio`/`http`), and Claude Desktop config examples, see [README.md](file:///home/y_ohi/program/bitbucket-mcp/README.md).
+- **API & Tool Specifications**: For details about specific tool parameters, error formatting, retry limits, and MCP annotations, see [SPEC.md](./SPEC.md).
+- **Setup & CLI Usage**: For environment variables, transport configurations (`stdio`/`http`), and Claude Desktop config examples, see [README.md](./README.md).
