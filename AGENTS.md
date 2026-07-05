@@ -42,6 +42,13 @@ uv run ruff format .
 
 # Check types
 uv run basedpyright
+
+# Build the package (wheel/sdist)
+uv build
+
+# Verify CLI execution from the built wheel (simulating uvx)
+uvx --from ./dist/*.whl bitbucket-mcp --help
+
 ```
 
 ---
