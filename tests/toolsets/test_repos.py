@@ -130,6 +130,9 @@ async def test_create_commit_sends_form(
     assert request is not None
     assert request.method == "POST"
     assert request.url.path == "/2.0/repositories/ws1/r/src"
+    assert request.headers["Content-Type"].startswith(
+        "application/x-www-form-urlencoded"
+    )
     body = request.read().decode()
     assert "message=msg" in body
     assert "branch=main" in body
