@@ -1,5 +1,6 @@
 import pytest
 from mcp.server.fastmcp import FastMCP
+from pydantic import SecretStr
 
 from bitbucket_mcp.config import Settings
 from bitbucket_mcp.server import create_server, make_lifespan
@@ -19,7 +20,7 @@ def test_registry_has_all_default_toolsets() -> None:
 
 
 async def test_create_server_registers_default_tools_and_raw_api() -> None:
-    settings = Settings(token="t")
+    settings = Settings(token=SecretStr("t"))
     mcp = create_server(settings)
     async with make_lifespan(settings)(mcp):
         names = {tool.name for tool in await mcp.list_tools()}
@@ -29,7 +30,7 @@ async def test_create_server_registers_default_tools_and_raw_api() -> None:
 
 
 async def test_create_server_respects_toolsets_selection() -> None:
-    settings = Settings(token="t", toolsets="context,users")
+    settings = Settings(token=SecretStr("t"), toolsets="context,users")
     mcp = create_server(settings)
     async with make_lifespan(settings)(mcp):
         names = {tool.name for tool in await mcp.list_tools()}
@@ -40,7 +41,7 @@ async def test_create_server_respects_toolsets_selection() -> None:
 
 
 async def test_create_server_read_only_excludes_write_tools() -> None:
-    settings = Settings(token="t", read_only=True)
+    settings = Settings(token=SecretStr("t"), read_only=True)
     mcp = create_server(settings)
     async with make_lifespan(settings)(mcp):
         names = {tool.name for tool in await mcp.list_tools()}
@@ -50,7 +51,7 @@ async def test_create_server_read_only_excludes_write_tools() -> None:
 
 
 async def test_create_server_can_exclude_raw_api() -> None:
-    settings = Settings(token="t", toolsets="context,-bitbucket_api")
+    settings = Settings(token=SecretStr("t"), toolsets="context,-bitbucket_api")
     mcp = create_server(settings)
     async with make_lifespan(settings)(mcp):
         names = {tool.name for tool in await mcp.list_tools()}
@@ -59,8 +60,8 @@ async def test_create_server_can_exclude_raw_api() -> None:
 
 
 async def test_create_server_uses_its_own_settings() -> None:
-    first = Settings(token="t", toolsets="context")
-    second = Settings(token="t", toolsets="users")
+    first = Settings(token=SecretStr("t"), toolsets="context")
+    second = Settings(token=SecretStr("t"), toolsets="users")
     mcp_first = create_server(first)
     create_server(second)
     async with make_lifespan(first)(mcp_first):
@@ -82,10 +83,13 @@ async def test_make_lifespan_closes_client_when_registration_fails(
     def explode(*args: object, **kwargs: object) -> None:
         raise RuntimeError("boom")
 
-    monkeypatch.setattr("bitbucket_mcp.server.BitbucketClient", lambda **_: FakeClient())
+    def fake_client_factory(**_kwargs: object) -> FakeClient:
+        return FakeClient()
+
+    monkeypatch.setattr("bitbucket_mcp.server.BitbucketClient", fake_client_factory)
     monkeypatch.setitem(TOOLSET_REGISTRY, "context", explode)
 
-    lifespan = make_lifespan(Settings(token="t"))
+    lifespan = make_lifespan(Settings(token=SecretStr("t")))
     with pytest.raises(RuntimeError, match="boom"):
         async with lifespan(FastMCP("bitbucket-mcp-test")):
             pass

@@ -1,24 +1,29 @@
 import base64
 
 import pytest
+from pydantic import SecretStr
 
 from bitbucket_mcp.auth import AuthConfigError, resolve_auth_header
 from bitbucket_mcp.config import Settings
 
 
 def test_basic_auth_from_email_and_api_token() -> None:
-    settings = Settings(email="a@b.com", api_token="tok")
+    settings = Settings(email="a@b.com", api_token=SecretStr("tok"))
     expected = "Basic " + base64.b64encode(b"a@b.com:tok").decode("ascii")
     assert resolve_auth_header(settings) == expected
 
 
 def test_bearer_from_token() -> None:
-    settings = Settings(token="bear")
+    settings = Settings(token=SecretStr("bear"))
     assert resolve_auth_header(settings) == "Bearer bear"
 
 
 def test_basic_takes_precedence_over_bearer() -> None:
-    settings = Settings(email="a@b.com", api_token="tok", token="bear")
+    settings = Settings(
+        email="a@b.com",
+        api_token=SecretStr("tok"),
+        token=SecretStr("bear"),
+    )
     assert resolve_auth_header(settings).startswith("Basic ")
 
 

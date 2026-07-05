@@ -2042,7 +2042,7 @@ async def test_pull_request_write_tools_absent_in_read_only(register_toolset) ->
 Run: `uv run pytest tests/toolsets/test_pull_requests.py -v`
 Expected: FAIL(write ツール未登録）
 
-- [ ] **Step 4: `pull_requests.py` の register 末尾（read 登録の直後、コメント行の位置）に write ブロックを実装**
+- [x] **Step 4: `pull_requests.py` の register 末尾（read 登録の直後、コメント行の位置）に write ブロックを実装**
 
 ```python
     if read_only:
@@ -2187,7 +2187,7 @@ Expected: FAIL(write ツール未登録）
     mcp.add_tool(add_pull_request_comment, annotations=_WRITE)
 ```
 
-- [ ] **Step 5: テストが通ることを確認**
+- [x] **Step 5: テストが通ることを確認**
 
 Run: `uv run pytest tests/toolsets/test_pull_requests.py -v`
 Expected: PASS(14 件）
@@ -2523,7 +2523,7 @@ class PipelineTarget(BaseModel):
     selector: dict[str, Any] | None = None
 ```
 
-- [ ] **Step 2: 失敗するテストを書く**
+- [x] **Step 2: 失敗するテストを書く**
 
 `tests/toolsets/test_pipelines.py`:
 
@@ -2742,7 +2742,7 @@ def register(
     mcp.add_tool(stop_pipeline, annotations=_WRITE)
 ```
 
-- [ ] **Step 5: テストが通ることを確認**
+- [x] **Step 5: テストが通ることを確認**
 
 Run: `uv run pytest tests/toolsets/test_pipelines.py -v`
 Expected: PASS(6 件）
@@ -3158,7 +3158,7 @@ def create_server(
     return FastMCP("bitbucket-mcp", host=host, port=port, lifespan=lifespan)
 ```
 
-- [ ] **Step 5: テストが通ることを確認**
+- [x] **Step 5: テストが通ることを確認**
 
 Run: `uv run pytest tests/test_server.py -v`
 Expected: PASS(5 件）
@@ -3287,7 +3287,7 @@ if __name__ == "__main__":
 Run: `uv run pytest tests/test_main.py -v`
 Expected: PASS(4 件）
 
-- [ ] **Step 5: 実際に起動する（手動スモーク）**
+- [x] **Step 5: 実際に起動する（手動スモーク）**
 
 認証情報なしでエラー終了を確認:
 
@@ -3437,13 +3437,13 @@ git commit -m "docs: README(使い方・環境変数・uvx/Claude Desktop 設定
 ## 最終検証（全タスク完了後）
 
 - [x] **全テスト**: `uv run pytest -v` → 全件 PASS。
-- [ ] **型検査**: `uv run basedpyright` → 0 エラー。
+- [x] **型検査**: `uv run basedpyright` → 0 エラー。
 - [x] **Lint/整形**: `uv run ruff check .` → 0 エラー。
 - [x] **パッケージビルド**: `uv build` → wheel/sdist 生成成功。
-- [ ] **uvx 疺通**: ビルド済み wheel を `uvx --from ./dist/bitbucket_mcp-0.1.0-py3-none-any.whl bitbucket-mcp --help` で起動できる（または `--help` 相当の引数エラーが出る）ことを確認。
-- [ ] **stdio 手動 QA**(Task 17 Step 5 のスモーク）: `initialize` → `tools/list` で 37 ツール（read-only 非有効時）が列挙されることを確認。
+- [x] **uvx 疺通**: ビルド済み wheel を `uvx --from ./dist/bitbucket_mcp-0.1.0-py3-none-any.whl bitbucket-mcp --help` で起動できる（または `--help` 相当の引数エラーが出る）ことを確認。
+- [x] **stdio 手動 QA**(Task 17 Step 5 のスモーク）: `initialize` → `tools/list` で 37 ツール（read-only 非有効時）が列挙されることを確認。
 
-> 注: `uv run basedpyright` は既知の `SecretStr` 関連の型エラーが残っているため未完了。`pytest` / `ruff` / `uv build` は別途完了済み。
+> 注: 2026-07-05 時点で `SecretStr` 関連の型エラーは解消済み。`pytest` / `ruff` / `basedpyright` / `uv build` / `uvx` / stdio 手動 QA を確認済み。
 
 ---
 
