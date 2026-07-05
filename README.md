@@ -74,3 +74,10 @@ bitbucket-mcp --transport {stdio,http} [--host HOST] [--port PORT]
 - `pipelines`: パイプラインの参照・実行・停止
 - `users`: get_user
 - `bitbucket_api`: 任意の REST 呼び出し（エスケープハッチ、常時）
+
+---
+
+## 仕様詳細
+
+各ツールの詳細な引数、エラーハンドリング、リトライ仕様、および設計ポリシーについては [SPEC.md](./SPEC.md) を参照してください。
+
