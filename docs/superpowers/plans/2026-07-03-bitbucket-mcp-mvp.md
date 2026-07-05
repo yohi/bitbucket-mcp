@@ -3443,6 +3443,8 @@ git commit -m "docs: README(使い方・環境変数・uvx/Claude Desktop 設定
 - [ ] **uvx 疺通**: ビルド済み wheel を `uvx --from ./dist/bitbucket_mcp-0.1.0-py3-none-any.whl bitbucket-mcp --help` で起動できる（または `--help` 相当の引数エラーが出る）ことを確認。
 - [ ] **stdio 手動 QA**(Task 17 Step 5 のスモーク）: `initialize` → `tools/list` で 37 ツール（read-only 非有効時）が列挙されることを確認。
 
+> 注: `uv run basedpyright` は既知の `SecretStr` 関連の型エラーが残っているため未完了。`pytest` / `ruff` / `uv build` は別途完了済み。
+
 ---
 
 ## Self-Review(計画作成後の自己レビュー結果）
