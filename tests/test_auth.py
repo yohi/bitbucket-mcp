@@ -134,8 +134,9 @@ def test_resolve_unauthenticated_oauth_when_client_configured() -> None:
 
 
 def test_resolve_raises_when_no_credentials() -> None:
+    settings = Settings()
     with pytest.raises(AuthConfigError, match="auth login"):
-        resolve_auth_provider(Settings())
+        resolve_auth_provider(settings)
 
 
 async def test_refresh_token_exchanges_and_saves_rotated_token(

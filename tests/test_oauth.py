@@ -18,8 +18,10 @@ def test_build_redirect_uri() -> None:
 
 
 def test_generate_state_is_random() -> None:
-    assert generate_state() != generate_state()
-    assert len(generate_state()) >= 16
+    state = generate_state()
+    other_state = generate_state()
+    assert state != other_state
+    assert len(state) >= 16
 
 
 def test_oauth_client_public_properties() -> None:
