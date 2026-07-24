@@ -1,5 +1,7 @@
 """issues ツールセット: イシューの参照・作成・更新・削除・コメント。"""
 
+from __future__ import annotations
+
 from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
@@ -22,6 +24,15 @@ def register(
     read_only: bool,
     default_workspace: str | None = None,
 ) -> None:
+    _register_read_tools(mcp, client, default_workspace)
+    if read_only:
+        return
+    _register_write_tools(mcp, client, default_workspace)
+
+
+def _register_read_tools(
+    mcp: FastMCP, client: BitbucketClient, default_workspace: str | None
+) -> None:
     async def list_issues(
         *,
         workspace: str | None = None,
@@ -34,6 +45,11 @@ def register(
         """List issues in a repository."""
         ws = resolve_workspace(workspace, default_workspace)
         query: dict[str, Any] = page_params(page, pagelen)
+        if q:
+            query["q"] = q
+        if sort:
+            query["sort"] = sort
+        query = page_params(page, pagelen)
         if q:
             query["q"] = q
         if sort:
@@ -57,9 +73,10 @@ def register(
     mcp.add_tool(list_issues, annotations=_READ)
     mcp.add_tool(get_issue, annotations=_READ)
 
-    if read_only:
-        return
 
+def _register_write_tools(
+    mcp: FastMCP, client: BitbucketClient, default_workspace: str | None
+) -> None:
     async def create_issue(
         *,
         workspace: str | None = None,
@@ -72,15 +89,9 @@ def register(
     ) -> dict[str, Any]:
         """Create an issue."""
         ws = resolve_workspace(workspace, default_workspace)
-        body: dict[str, Any] = {"title": title}
-        if content:
-            body["content"] = {"raw": content}
-        if kind:
-            body["kind"] = kind
-        if priority:
-            body["priority"] = priority
-        if assignee:
-            body["assignee"] = {"account_id": assignee}
+        body = _build_issue_body(
+            title=title, content=content, kind=kind, priority=priority, assignee=assignee
+        )
         return await client.request("POST", f"/repositories/{ws}/{repo_slug}/issues", body=body)
 
     async def update_issue(
@@ -96,17 +107,9 @@ def register(
     ) -> dict[str, Any]:
         """Update an issue."""
         ws = resolve_workspace(workspace, default_workspace)
-        body: dict[str, Any] = {}
-        if title is not None:
-            body["title"] = title
-        if state is not None:
-            body["state"] = state
-        if kind is not None:
-            body["kind"] = kind
-        if priority is not None:
-            body["priority"] = priority
-        if assignee is not None:
-            body["assignee"] = {"account_id": assignee}
+        body = _build_issue_body(
+            title=title, state=state, kind=kind, priority=priority, assignee=assignee
+        )
         if not body:
             raise ToolError("update_issue には少なくとも1つの更新項目が必要です。")
         return await client.request(
@@ -139,3 +142,28 @@ def register(
     mcp.add_tool(update_issue, annotations=_WRITE)
     mcp.add_tool(delete_issue, annotations=_DESTRUCTIVE)
     mcp.add_tool(add_issue_comment, annotations=_WRITE)
+
+
+def _build_issue_body(
+    *,
+    title: str | None = None,
+    state: str | None = None,
+    content: str | None = None,
+    kind: str | None = None,
+    priority: str | None = None,
+    assignee: str | None = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {}
+    if title is not None:
+        body["title"] = title
+    if state is not None:
+        body["state"] = state
+    if content is not None:
+        body["content"] = {"raw": content}
+    if kind is not None:
+        body["kind"] = kind
+    if priority is not None:
+        body["priority"] = priority
+    if assignee is not None:
+        body["assignee"] = {"account_id": assignee}
+    return body
