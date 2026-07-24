@@ -47,25 +47,23 @@ async def test_bitbucket_login_starts_browser_login_with_shared_dependencies(
     monkeypatch.setattr(controller, "start", fake_start)
     monkeypatch.setattr("bitbucket_mcp.server._display_available", lambda: True)
 
-    result = await _bitbucket_login(provider, controller, oauth_client, store)
-
-    assert result == "Bitbucket 認証をブラウザで開始しました。同意後に操作を再実行してください。"
+    assert _bitbucket_login(provider, controller, oauth_client, store) == (
+        "Bitbucket 認証をブラウザで開始しました。同意後に操作を再実行してください。"
+    )
     assert len(captured) == 1
 
 
 async def test_bitbucket_login_returns_already_logged_in() -> None:
-    class FakeProvider:
+    class AlreadyLoggedInProvider:
         def is_authenticated(self) -> bool:
             return True
 
-    result = await _bitbucket_login(
-        cast(AuthProvider, FakeProvider()),
+    assert _bitbucket_login(
+        cast(AuthProvider, AlreadyLoggedInProvider()),
         AutoLoginController(),
         cast(OAuthClient, object()),
         cast(CredentialStore, object()),
-    )
-
-    assert result == "既にログインしています。"
+    ) == "既にログインしています。"
 
 
 @pytest.mark.parametrize(
@@ -94,7 +92,7 @@ async def test_bitbucket_login_guides_manual_login_when_browser_login_unavailabl
 
     monkeypatch.setattr("bitbucket_mcp.server._display_available", lambda: display_available)
 
+    fake_provider = cast(AuthProvider, FakeProvider())
+    controller = AutoLoginController()
     with pytest.raises(ToolError, match=message):
-        await _bitbucket_login(
-            cast(AuthProvider, FakeProvider()), AutoLoginController(), oauth_client, store
-        )
+        _bitbucket_login(fake_provider, controller, oauth_client, store)
