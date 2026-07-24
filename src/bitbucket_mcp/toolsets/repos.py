@@ -31,10 +31,11 @@ def register(
     auth_provider: AuthProvider | None = None,
     oauth_client: OAuthClient | None = None,
     store: CredentialStore | None = None,
+    controller: AutoLoginController | None = None,
 ) -> None:
     from bitbucket_mcp.auth import StaticAuthProvider
 
-    controller = AutoLoginController()
+    controller = controller or AutoLoginController()
 
     def _wrap(fn: Any) -> Any:
         return require_auth(

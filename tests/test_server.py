@@ -5,6 +5,7 @@ from pydantic import SecretStr
 from bitbucket_mcp.config import Settings
 from bitbucket_mcp.server import create_server, make_lifespan
 from bitbucket_mcp.toolsets import DEFAULT_TOOLSETS, TOOLSET_REGISTRY
+from bitbucket_mcp.toolsets._common import AutoLoginController
 
 
 def test_registry_has_all_default_toolsets() -> None:
@@ -94,3 +95,54 @@ async def test_make_lifespan_closes_client_when_registration_fails(
         async with lifespan(FastMCP("bitbucket-mcp-test")):
             pass
     assert closed is True
+
+
+async def test_make_lifespan_passes_shared_auth_dependencies_and_shuts_down_controller(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[dict[str, object]] = []
+    shutdown_called = False
+
+    class FakeProvider:
+        pass
+
+    class FakeStore:
+        pass
+
+    class FakeOAuthClient:
+        async def aclose(self) -> None:
+            pass
+
+    async def fake_shutdown(self: AutoLoginController) -> None:
+        nonlocal shutdown_called
+        shutdown_called = True
+
+    def capture_register(*args: object, **kwargs: object) -> None:
+        captured.append(kwargs)
+
+    def fake_resolve_auth_provider(_settings: Settings) -> FakeProvider:
+        return FakeProvider()
+
+    def fake_store(_path: object) -> FakeStore:
+        return FakeStore()
+
+    def fake_oauth_client(**_kwargs: object) -> FakeOAuthClient:
+        return FakeOAuthClient()
+
+    monkeypatch.setattr("bitbucket_mcp.server.resolve_auth_provider", fake_resolve_auth_provider)
+    monkeypatch.setattr("bitbucket_mcp.server.CredentialStore", fake_store)
+    monkeypatch.setattr("bitbucket_mcp.server.OAuthClient", fake_oauth_client)
+    monkeypatch.setattr("bitbucket_mcp.server.AutoLoginController.shutdown", fake_shutdown)
+    monkeypatch.setitem(TOOLSET_REGISTRY, "context", capture_register)
+    monkeypatch.setattr("bitbucket_mcp.server.raw_api.register", capture_register)
+
+    settings = Settings(token=SecretStr("t"), toolsets="context")
+    async with make_lifespan(settings)(FastMCP("bitbucket-mcp-test")):
+        pass
+
+    assert len(captured) == 2
+    assert {id(item["controller"]) for item in captured} == {id(captured[0]["controller"])}
+    assert all("auth_provider" in item for item in captured)
+    assert all("oauth_client" in item for item in captured)
+    assert all("store" in item for item in captured)
+    assert shutdown_called is True
