@@ -1,7 +1,10 @@
 """CredentialStore のテスト。"""
 
+import json
 import stat
 from pathlib import Path
+
+import pytest
 
 from bitbucket_mcp.credentials import CredentialStore, StoredCredentials
 
@@ -41,6 +44,27 @@ def test_corrupted_file_returns_none(tmp_path: Path) -> None:
     assert store.load() is None
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("access_token", None),
+        ("refresh_token", True),
+        ("expires_at", "2000000000"),
+        ("token_type", None),
+        ("client_id", 123),
+        ("obtained_at", False),
+        ("scopes", ["account", 1]),
+    ],
+)
+def test_malformed_field_types_return_none(tmp_path: Path, field: str, value: object) -> None:
+    path = tmp_path / "creds.json"
+    payload = _sample().to_dict()
+    payload[field] = value
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert CredentialStore(path).load() is None
+
+
 def test_missing_file_returns_none(tmp_path: Path) -> None:
     store = CredentialStore(tmp_path / "missing.json")
     assert store.load() is None
@@ -51,6 +75,7 @@ def test_delete(tmp_path: Path) -> None:
     store.save(_sample())
     store.delete()
     assert not (tmp_path / "creds.json").exists()
+    assert (tmp_path / "creds.lock").exists()
 
 
 def test_atomic_write(tmp_path: Path) -> None:

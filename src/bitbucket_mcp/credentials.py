@@ -40,21 +40,40 @@ class StoredCredentials:
         if not isinstance(data, dict):
             raise ValueError("credentials data must be a JSON object")
         payload = cast(dict[str, object], data)
-        raw_scopes_value = payload["scopes"]
-        if not isinstance(raw_scopes_value, list):
+
+        access_token = payload["access_token"]
+        refresh_token = payload["refresh_token"]
+        expires_at = payload["expires_at"]
+        scopes = payload["scopes"]
+        token_type = payload["token_type"]
+        client_id = payload["client_id"]
+        obtained_at = payload["obtained_at"]
+        if not isinstance(access_token, str):
+            raise ValueError("credentials access_token must be a string")
+        if not isinstance(refresh_token, str):
+            raise ValueError("credentials refresh_token must be a string")
+        if not isinstance(expires_at, int) or isinstance(expires_at, bool):
+            raise ValueError("credentials expires_at must be an integer")
+        if not isinstance(scopes, list):
             raise ValueError("credentials scopes must be a list of strings")
-        raw_scopes = cast(list[object], raw_scopes_value)
+        raw_scopes = cast(list[object], scopes)
         if not all(isinstance(scope, str) for scope in raw_scopes):
             raise ValueError("credentials scopes must be a list of strings")
         scopes = [cast(str, scope) for scope in raw_scopes]
+        if not isinstance(token_type, str):
+            raise ValueError("credentials token_type must be a string")
+        if not isinstance(client_id, str):
+            raise ValueError("credentials client_id must be a string")
+        if not isinstance(obtained_at, int) or isinstance(obtained_at, bool):
+            raise ValueError("credentials obtained_at must be an integer")
         return cls(
-            access_token=str(payload["access_token"]),
-            refresh_token=str(payload["refresh_token"]),
-            expires_at=int(cast(str | int, payload["expires_at"])),
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_at=expires_at,
             scopes=scopes,
-            token_type=str(payload["token_type"]),
-            client_id=str(payload["client_id"]),
-            obtained_at=int(cast(str | int, payload["obtained_at"])),
+            token_type=token_type,
+            client_id=client_id,
+            obtained_at=obtained_at,
         )
 
 
@@ -105,8 +124,8 @@ class CredentialStore:
             raise
 
     def delete(self) -> None:
-        self.path.unlink(missing_ok=True)
-        self._lock_path.unlink(missing_ok=True)
+        with self.locked():
+            self.path.unlink(missing_ok=True)
 
 
 def default_credential_path(config_dir: Path | None = None) -> Path:
