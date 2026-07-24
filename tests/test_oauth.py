@@ -68,7 +68,7 @@ def test_oauth_client_accepts_bitbucket_subdomain() -> None:
 
 def test_callback_server_rejects_non_loopback_host() -> None:
     with pytest.raises(ValueError, match=r"127\.0\.0\.1"):
-        OAuthCallbackServer(host="0.0.0.0")
+        OAuthCallbackServer(host="0.0.0.0", expected_state="expected")
 
 
 def test_build_authorize_url() -> None:
@@ -170,7 +170,7 @@ async def test_callback_server_collects_code_and_state() -> None:
 
 
 async def test_callback_server_error_raises() -> None:
-    server = OAuthCallbackServer(port=0)
+    server = OAuthCallbackServer(port=0, expected_state="expected")
     await server.start()
     port = server.port
     async with httpx.AsyncClient() as http:
@@ -200,15 +200,19 @@ async def test_callback_server_rejects_state_mismatch() -> None:
 
 
 async def test_callback_server_rejects_unexpected_path() -> None:
-    server = OAuthCallbackServer(port=0)
+    server = OAuthCallbackServer(port=0, expected_state="expected")
     await server.start()
     port = server.port
     async with httpx.AsyncClient() as http:
         response = await http.get(
             f"http://127.0.0.1:{port}/unexpected",
-            params={"code": "c", "state": "expected"},
         )
     assert response.status_code == 404
-    with pytest.raises(OAuthFlowError, match="unexpected callback path"):
-        await server.wait_callback()
+    async with httpx.AsyncClient() as http:
+        response = await http.get(
+            f"http://127.0.0.1:{port}/callback",
+            params={"code": "c", "state": "expected"},
+        )
+    assert response.status_code == 200
+    assert await server.wait_callback() == ("c", "expected")
     await server.aclose()

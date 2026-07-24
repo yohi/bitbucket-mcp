@@ -141,7 +141,8 @@ class OAuthCallbackServer:
         self,
         host: str = "127.0.0.1",
         port: int = 8976,
-        expected_state: str | None = None,
+        *,
+        expected_state: str,
     ) -> None:
         if host != "127.0.0.1":
             raise ValueError("host must be 127.0.0.1")
@@ -153,7 +154,6 @@ class OAuthCallbackServer:
         self._code: str | None = None
         self._state: str | None = None
         self._error: str | None = None
-        self._callback_error: str | None = None
 
     @property
     def port(self) -> int:
@@ -172,7 +172,6 @@ class OAuthCallbackServer:
         path = parts[1] if len(parts) > 1 else "/"
         parsed = urllib.parse.urlparse(path)
         if parsed.path != "/callback":
-            self._callback_error = "unexpected callback path"
             body = b"Not Found"
             response = (
                 b"HTTP/1.1 404 Not Found\r\n"
@@ -186,7 +185,6 @@ class OAuthCallbackServer:
             await writer.drain()
             writer.close()
             await writer.wait_closed()
-            self._event.set()
             return
 
         while True:
@@ -219,13 +217,11 @@ class OAuthCallbackServer:
 
     async def wait_callback(self) -> tuple[str, str | None]:
         await self._event.wait()
-        if self._callback_error:
-            raise OAuthFlowError(self._callback_error)
         if self._error:
             raise OAuthFlowError(f"OAuth callback error: {self._error}")
         if self._code is None:
             raise OAuthFlowError("callback did not include code")
-        if self._expected_state is not None and self._state != self._expected_state:
+        if self._state != self._expected_state:
             raise OAuthFlowError("state mismatch")
         return (self._code, self._state)
 
