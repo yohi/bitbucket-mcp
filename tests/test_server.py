@@ -2,6 +2,7 @@ import pytest
 from mcp.server.fastmcp import FastMCP
 from pydantic import SecretStr
 
+from bitbucket_mcp.auth import AuthConfigError
 from bitbucket_mcp.config import Settings
 from bitbucket_mcp.server import create_server, make_lifespan
 from bitbucket_mcp.toolsets import DEFAULT_TOOLSETS, TOOLSET_REGISTRY
@@ -146,3 +147,34 @@ async def test_make_lifespan_passes_shared_auth_dependencies_and_shuts_down_cont
     assert all("oauth_client" in item for item in captured)
     assert all("store" in item for item in captured)
     assert shutdown_called is True
+
+
+async def test_server_starts_without_credentials_when_oauth_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BITBUCKET_OAUTH_CLIENT_ID", "cid")
+    monkeypatch.setenv("BITBUCKET_OAUTH_CLIENT_SECRET", "csec")
+    settings = Settings()
+    mcp = create_server(settings)
+    async with make_lifespan(settings)(mcp):
+        names = {tool.name for tool in await mcp.list_tools()}
+    assert "bitbucket_login" in names
+
+
+async def test_server_raises_when_no_credentials_at_all() -> None:
+    settings = Settings()
+    with pytest.raises(AuthConfigError):
+        async with make_lifespan(settings)(create_server(settings)):
+            pass
+
+
+async def test_bitbucket_login_tool_registered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BITBUCKET_OAUTH_CLIENT_ID", "cid")
+    monkeypatch.setenv("BITBUCKET_OAUTH_CLIENT_SECRET", "csec")
+    settings = Settings(read_only=True)
+    mcp = create_server(settings)
+    async with make_lifespan(settings)(mcp):
+        tools = await mcp.list_tools()
+    assert any(tool.name == "bitbucket_login" for tool in tools)
