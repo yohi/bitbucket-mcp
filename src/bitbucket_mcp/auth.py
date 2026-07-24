@@ -68,6 +68,9 @@ class OAuthAuthProvider:
         creds = self._store.load()
         return creds is not None and creds.client_id == self._client_id
 
+    async def aclose(self) -> None:
+        await self._oauth_client.aclose()
+
     async def authorization_header(self) -> str:
         creds = self._store.load()
         if creds is None or creds.client_id != self._client_id:
