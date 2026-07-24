@@ -36,6 +36,41 @@ def test_oauth_client_public_properties() -> None:
     assert client.scopes == ["account", "repository"]
 
 
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://bitbucket.org",
+        "https://evil.example.com",
+        "https://bitbucket.org.evil.example.com",
+    ],
+)
+def test_oauth_client_rejects_unsafe_base_url(base_url: str) -> None:
+    with pytest.raises(ValueError, match="base_url"):
+        OAuthClient(
+            base_url=base_url,
+            client_id="c",
+            client_secret="s",
+            redirect_uri="http://127.0.0.1:8976/callback",
+            scopes=["account"],
+        )
+
+
+def test_oauth_client_accepts_bitbucket_subdomain() -> None:
+    client = OAuthClient(
+        base_url="https://api.bitbucket.org",
+        client_id="c",
+        client_secret="s",
+        redirect_uri="http://127.0.0.1:8976/callback",
+        scopes=["account"],
+    )
+    assert client.base_url == "https://api.bitbucket.org"
+
+
+def test_callback_server_rejects_non_loopback_host() -> None:
+    with pytest.raises(ValueError, match=r"127\.0\.0\.1"):
+        OAuthCallbackServer(host="0.0.0.0")
+
+
 def test_build_authorize_url() -> None:
     client = OAuthClient(
         base_url="https://bitbucket.org",
@@ -128,7 +163,7 @@ async def test_callback_server_collects_code_and_state() -> None:
             params={"code": "c", "state": "s"},
         )
     assert response.status_code == 200
-    code, state = await server.wait_callback()
+    code, state = await server.wait_callback("s")
     await server.aclose()
     assert code == "c"
     assert state == "s"
@@ -145,5 +180,35 @@ async def test_callback_server_error_raises() -> None:
         )
     assert response.status_code == 200
     with pytest.raises(OAuthFlowError, match="access_denied"):
-        await server.wait_callback()
+        await server.wait_callback("s")
+    await server.aclose()
+
+
+async def test_callback_server_rejects_state_mismatch() -> None:
+    server = OAuthCallbackServer(port=0)
+    await server.start()
+    port = server.port
+    async with httpx.AsyncClient() as http:
+        response = await http.get(
+            f"http://127.0.0.1:{port}/callback",
+            params={"code": "c", "state": "wrong"},
+        )
+    assert response.status_code == 200
+    with pytest.raises(OAuthFlowError, match="state mismatch"):
+        await server.wait_callback("expected")
+    await server.aclose()
+
+
+async def test_callback_server_rejects_unexpected_path() -> None:
+    server = OAuthCallbackServer(port=0)
+    await server.start()
+    port = server.port
+    async with httpx.AsyncClient() as http:
+        response = await http.get(
+            f"http://127.0.0.1:{port}/unexpected",
+            params={"code": "c", "state": "expected"},
+        )
+    assert response.status_code == 404
+    with pytest.raises(OAuthFlowError, match="unexpected callback path"):
+        await server.wait_callback("expected")
     await server.aclose()
