@@ -11,19 +11,35 @@ from bitbucket_mcp.config import Settings
 from bitbucket_mcp.credentials import CredentialStore, default_credential_path
 from bitbucket_mcp.oauth import OAuthClient
 from bitbucket_mcp.toolsets import TOOLSET_REGISTRY, raw_api
-from bitbucket_mcp.toolsets._common import AutoLoginController
+from bitbucket_mcp.toolsets._common import (
+    AutoLoginController,
+    _display_available,  # pyright: ignore[reportPrivateUsage]
+    _perform_auto_login,  # pyright: ignore[reportPrivateUsage]
+)
 
 _RAW_API_EXCLUDE = "-bitbucket_api"
 logger = logging.getLogger(__name__)
 
 
-async def _bitbucket_login(auth_provider: AuthProvider) -> str:
+async def _bitbucket_login(
+    auth_provider: AuthProvider,
+    controller: AutoLoginController,
+    oauth_client: OAuthClient | None,
+    store: CredentialStore | None,
+) -> str:
     if auth_provider.is_authenticated():
         return "既にログインしています。"
-    raise ToolError(
-        "ブラウザでのログインを開始してください。"
-        "(この実装では CLI `bitbucket-mcp auth login` を利用してください。)"
-    )
+
+    if oauth_client is None or store is None or not _display_available():
+        raise ToolError(
+            "認証が必要です。`bitbucket-mcp auth login --manual` を実行するか、"
+            "BITBUCKET_TOKEN 等を設定してください。"
+        )
+
+    started = controller.start(lambda: _perform_auto_login(auth_provider, oauth_client, store))
+    if started:
+        return "Bitbucket 認証をブラウザで開始しました。同意後に操作を再実行してください。"
+    return "認証処理中です。少し待って再実行してください。"
 
 
 def _oauth_client_for_login(settings: Settings) -> OAuthClient | None:
@@ -82,7 +98,7 @@ def make_lifespan(settings: Settings):
                 )
 
             async def bitbucket_login() -> str:
-                return await _bitbucket_login(auth_provider)
+                return await _bitbucket_login(auth_provider, controller, oauth_client, store)
 
             mcp.add_tool(
                 bitbucket_login,
