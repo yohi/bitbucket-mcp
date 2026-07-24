@@ -50,8 +50,8 @@ class Settings(BaseSettings):
     def validate_oauth_base_url(cls, value: str) -> str:
         parsed = urlparse(value)
         hostname = parsed.hostname
-        if parsed.scheme not in {"https", "http"} or hostname is None:
-            raise ValueError("oauth_base_url must be a valid URL")
+        if parsed.scheme != "https" or hostname is None:
+            raise ValueError("oauth_base_url must be a valid URL with https scheme")
         if hostname != "bitbucket.org" and not hostname.endswith(".bitbucket.org"):
             raise ValueError("oauth_base_url must be under bitbucket.org domain")
         return value.rstrip("/")

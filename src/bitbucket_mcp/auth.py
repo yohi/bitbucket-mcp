@@ -109,10 +109,7 @@ class OAuthAuthProvider:
                         redirect_uri=self._oauth_client.redirect_uri,
                         scopes=self._oauth_client.scopes,
                     )
-                    try:
-                        new_tokens = asyncio.run(client.refresh_token(creds.refresh_token))
-                    finally:
-                        asyncio.run(client.aclose())
+                    new_tokens = client.refresh_token_sync(creds.refresh_token)
                     new_creds = new_tokens.to_stored(
                         client_id=self._client_id,
                         obtained_at=int(time.time()),
@@ -126,6 +123,7 @@ class OAuthAuthProvider:
 
     def _is_near_expiry(self, creds: StoredCredentials) -> bool:
         if creds.expires_at <= 0:
+            # expires_at <= 0 is treated as a non-expiring token
             return False
         return int(time.time()) >= creds.expires_at - self._EXPIRY_SKEW_SECONDS
 

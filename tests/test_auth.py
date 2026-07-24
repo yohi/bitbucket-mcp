@@ -181,3 +181,60 @@ async def test_refresh_token_exchanges_and_saves_rotated_token(
 def test_resolve_auth_header_keeps_static_compatibility() -> None:
     settings = Settings(token=SecretStr("bear"))
     assert resolve_auth_header(settings) == "Bearer bear"
+
+async def test_refresh_token_exchanges_and_saves_rotated_token_with_sync_client(
+    tmp_path: Path, httpx_mock: HTTPXMock
+) -> None:
+    httpx_mock.add_response(
+        url="https://bitbucket.org/site/oauth2/access_token",
+        json={
+            "access_token": "new-a",
+            "refresh_token": "new-r",
+            "expires_in": 3600,
+            "scopes": "account",
+            "token_type": "bearer",
+        },
+    )
+    store = CredentialStore(tmp_path / "creds.json")
+    now = int(time.time())
+    store.save(
+        StoredCredentials(
+            access_token="a",
+            refresh_token="r",
+            expires_at=now + 30,
+            scopes=["account"],
+            token_type="bearer",
+            client_id="cid",
+            obtained_at=now,
+        )
+    )
+    provider = OAuthAuthProvider(
+        store=store,
+        oauth_client=_oauth_client(),
+        client_id="cid",
+        client_secret=SecretStr("cs"),
+    )
+    await provider.refresh()
+    loaded = store.load()
+    assert loaded is not None
+    assert loaded.access_token == "new-a"
+    assert loaded.refresh_token == "new-r"
+
+def test_is_near_expiry_treats_zero_as_non_expiring() -> None:
+    provider = OAuthAuthProvider(
+        store=CredentialStore(Path("/dev/null")),
+        oauth_client=_oauth_client(),
+        client_id="cid",
+        client_secret=SecretStr("cs"),
+    )
+    now = int(time.time())
+    creds = StoredCredentials(
+        access_token="a",
+        refresh_token="r",
+        expires_at=0,
+        scopes=["account"],
+        token_type="bearer",
+        client_id="cid",
+        obtained_at=now,
+    )
+    assert provider._is_near_expiry(creds) is False  # pyright: ignore[reportPrivateUsage]  # expires_at <= 0 means non-expiring
