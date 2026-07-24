@@ -79,14 +79,14 @@ async def test_make_lifespan_closes_client_when_registration_fails(
         async def aclose(self) -> None:
             nonlocal closed
             closed = True
-
-    def explode(*args: object, **kwargs: object) -> None:
-        raise RuntimeError("boom")
-
     def fake_client_factory(**_kwargs: object) -> FakeClient:
         return FakeClient()
 
     monkeypatch.setattr("bitbucket_mcp.server.BitbucketClient", fake_client_factory)
+
+    def explode(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("boom")
+
     monkeypatch.setitem(TOOLSET_REGISTRY, "context", explode)
 
     lifespan = make_lifespan(Settings(token=SecretStr("t")))
