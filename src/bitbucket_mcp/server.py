@@ -21,7 +21,7 @@ _RAW_API_EXCLUDE = "-bitbucket_api"
 logger = logging.getLogger(__name__)
 
 
-async def _bitbucket_login(
+def _bitbucket_login(
     auth_provider: AuthProvider,
     controller: AutoLoginController,
     oauth_client: OAuthClient | None,
@@ -98,7 +98,7 @@ def make_lifespan(settings: Settings):
                 )
 
             async def bitbucket_login() -> str:
-                return await _bitbucket_login(auth_provider, controller, oauth_client, store)
+                return _bitbucket_login(auth_provider, controller, oauth_client, store)
 
             mcp.add_tool(
                 bitbucket_login,
@@ -114,7 +114,6 @@ def make_lifespan(settings: Settings):
             if oauth_client is not None:
                 await oauth_client.aclose()
             if auth_provider is not None:
-                await auth_provider.aclose()
                 await auth_provider.aclose()
 
     return lifespan
