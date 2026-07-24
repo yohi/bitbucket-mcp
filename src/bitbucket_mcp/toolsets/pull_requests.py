@@ -1,5 +1,7 @@
 """pull_requests ツールセット: PR の参照・作成・更新・マージ・レビュー・コメント。"""
 
+from __future__ import annotations
+
 from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
@@ -21,6 +23,15 @@ def register(
     *,
     read_only: bool,
     default_workspace: str | None = None,
+) -> None:
+    _register_read_tools(mcp, client, default_workspace)
+    if read_only:
+        return
+    _register_write_tools(mcp, client, default_workspace)
+
+
+def _register_read_tools(
+    mcp: FastMCP, client: BitbucketClient, default_workspace: str | None
 ) -> None:
     async def list_pull_requests(
         *,
@@ -74,9 +85,10 @@ def register(
     mcp.add_tool(list_pull_requests, annotations=_READ)
     mcp.add_tool(get_pull_request, annotations=_READ)
 
-    if read_only:
-        return
 
+def _register_write_tools(
+    mcp: FastMCP, client: BitbucketClient, default_workspace: str | None
+) -> None:
     async def create_pull_request(
         *,
         workspace: str | None = None,
@@ -90,18 +102,14 @@ def register(
     ) -> dict[str, Any]:
         """Create a pull request."""
         ws = resolve_workspace(workspace, default_workspace)
-        body: dict[str, Any] = {
-            "title": title,
-            "source": {"branch": {"name": source_branch}},
-        }
-        if destination_branch is not None:
-            body["destination"] = {"branch": {"name": destination_branch}}
-        if description:
-            body["description"] = description
-        if reviewers:
-            body["reviewers"] = [{"account_id": r} for r in reviewers]
-        if close_source_branch is not None:
-            body["close_source_branch"] = close_source_branch
+        body = _build_pr_create_body(
+            title=title,
+            source_branch=source_branch,
+            destination_branch=destination_branch,
+            description=description,
+            reviewers=reviewers,
+            close_source_branch=close_source_branch,
+        )
         return await client.request(
             "POST", f"/repositories/{ws}/{repo_slug}/pullrequests", body=body
         )
@@ -117,13 +125,9 @@ def register(
     ) -> dict[str, Any]:
         """Update a pull request's title, description, or destination."""
         ws = resolve_workspace(workspace, default_workspace)
-        body: dict[str, Any] = {}
-        if title is not None:
-            body["title"] = title
-        if description is not None:
-            body["description"] = description
-        if destination_branch:
-            body["destination"] = {"branch": {"name": destination_branch}}
+        body = _build_pr_update_body(
+            title=title, description=description, destination_branch=destination_branch
+        )
         return await client.request(
             "PUT",
             f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}",
@@ -141,13 +145,11 @@ def register(
     ) -> dict[str, Any]:
         """Merge a pull request. Destructive."""
         ws = resolve_workspace(workspace, default_workspace)
-        body: dict[str, Any] = {}
-        if merge_strategy:
-            body["merge_strategy"] = merge_strategy
-        if message:
-            body["message"] = message
-        if close_source_branch is not None:
-            body["close_source_branch"] = close_source_branch
+        body = _build_pr_merge_body(
+            merge_strategy=merge_strategy,
+            message=message,
+            close_source_branch=close_source_branch,
+        )
         return await client.request(
             "POST",
             f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}/merge",
@@ -206,3 +208,59 @@ def register(
     mcp.add_tool(decline_pull_request, annotations=_WRITE)
     mcp.add_tool(review_pull_request, annotations=_WRITE)
     mcp.add_tool(add_pull_request_comment, annotations=_WRITE)
+
+
+def _build_pr_create_body(
+    *,
+    title: str,
+    source_branch: str,
+    destination_branch: str | None,
+    description: str | None,
+    reviewers: list[str] | None,
+    close_source_branch: bool | None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "title": title,
+        "source": {"branch": {"name": source_branch}},
+    }
+    if destination_branch is not None:
+        body["destination"] = {"branch": {"name": destination_branch}}
+    if description:
+        body["description"] = description
+    if reviewers:
+        body["reviewers"] = [{"account_id": r} for r in reviewers]
+    if close_source_branch is not None:
+        body["close_source_branch"] = close_source_branch
+    return body
+
+
+def _build_pr_update_body(
+    *,
+    title: str | None,
+    description: str | None,
+    destination_branch: str | None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {}
+    if title is not None:
+        body["title"] = title
+    if description is not None:
+        body["description"] = description
+    if destination_branch:
+        body["destination"] = {"branch": {"name": destination_branch}}
+    return body
+
+
+def _build_pr_merge_body(
+    *,
+    merge_strategy: str | None,
+    message: str | None,
+    close_source_branch: bool | None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {}
+    if merge_strategy:
+        body["merge_strategy"] = merge_strategy
+    if message:
+        body["message"] = message
+    if close_source_branch is not None:
+        body["close_source_branch"] = close_source_branch
+    return body
