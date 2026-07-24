@@ -16,11 +16,20 @@ _DESTRUCTIVE = ToolAnnotations(destructiveHint=True, openWorldHint=True)
 
 
 def register(
-    mcp: FastMCP,
-    client: BitbucketClient,
-    *,
-    read_only: bool,
-    default_workspace: str | None = None,
+mcp: FastMCP,
+client: BitbucketClient,
+*,
+read_only: bool,
+default_workspace: str | None = None,
+) -> None:
+    _register_read_tools(mcp, client, default_workspace)
+    if read_only:
+        return
+    _register_write_tools(mcp, client, default_workspace)
+
+
+def _register_read_tools(
+    mcp: FastMCP, client: BitbucketClient, default_workspace: str | None
 ) -> None:
     async def list_repositories(
         *,
@@ -155,9 +164,10 @@ def register(
     mcp.add_tool(list_branches, annotations=_READ)
     mcp.add_tool(list_tags, annotations=_READ)
 
-    if read_only:
-        return
 
+def _register_write_tools(
+    mcp: FastMCP, client: BitbucketClient, default_workspace: str | None
+) -> None:
     async def create_repository(
         *,
         workspace: str | None = None,
@@ -187,12 +197,9 @@ def register(
     ) -> dict[str, Any]:
         """Fork a repository."""
         ws = resolve_workspace(workspace, default_workspace)
-        body: dict[str, Any] = {}
-        if name:
-            body["name"] = name
-        if target_workspace:
-            body["workspace"] = {"slug": target_workspace}
+        body = _build_fork_body(target_workspace=target_workspace, name=name)
         return await client.request("POST", f"/repositories/{ws}/{repo_slug}/forks", body=body)
+
 
     async def create_commit(
         *,
@@ -254,3 +261,14 @@ def register(
     mcp.add_tool(create_branch, annotations=_WRITE)
     mcp.add_tool(delete_branch, annotations=_DESTRUCTIVE)
     mcp.add_tool(create_tag, annotations=_WRITE)
+
+
+def _build_fork_body(
+    *, target_workspace: str | None, name: str | None
+) -> dict[str, Any]:
+    body: dict[str, Any] = {}
+    if name:
+        body["name"] = name
+    if target_workspace:
+        body["workspace"] = {"slug": target_workspace}
+    return body
