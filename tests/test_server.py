@@ -79,6 +79,7 @@ async def test_make_lifespan_closes_client_when_registration_fails(
         async def aclose(self) -> None:
             nonlocal closed
             closed = True
+
     def fake_client_factory(**_kwargs: object) -> FakeClient:
         return FakeClient()
 

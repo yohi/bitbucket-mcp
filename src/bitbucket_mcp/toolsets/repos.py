@@ -16,11 +16,11 @@ _DESTRUCTIVE = ToolAnnotations(destructiveHint=True, openWorldHint=True)
 
 
 def register(
-mcp: FastMCP,
-client: BitbucketClient,
-*,
-read_only: bool,
-default_workspace: str | None = None,
+    mcp: FastMCP,
+    client: BitbucketClient,
+    *,
+    read_only: bool,
+    default_workspace: str | None = None,
 ) -> None:
     _register_read_tools(mcp, client, default_workspace)
     if read_only:
@@ -200,7 +200,6 @@ def _register_write_tools(
         body = _build_fork_body(target_workspace=target_workspace, name=name)
         return await client.request("POST", f"/repositories/{ws}/{repo_slug}/forks", body=body)
 
-
     async def create_commit(
         *,
         workspace: str | None = None,
@@ -263,9 +262,7 @@ def _register_write_tools(
     mcp.add_tool(create_tag, annotations=_WRITE)
 
 
-def _build_fork_body(
-    *, target_workspace: str | None, name: str | None
-) -> dict[str, Any]:
+def _build_fork_body(*, target_workspace: str | None, name: str | None) -> dict[str, Any]:
     body: dict[str, Any] = {}
     if name:
         body["name"] = name
