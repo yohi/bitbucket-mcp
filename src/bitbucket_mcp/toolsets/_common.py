@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import inspect
+import logging
 import os
 import sys
 import time
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
     from bitbucket_mcp.auth import AuthProvider
 
 T = TypeVar("T")
+logger = logging.getLogger(__name__)
 
 
 def resolve_workspace(workspace: str | None, default_workspace: str | None) -> str:
@@ -64,6 +66,8 @@ class AutoLoginController:
             await asyncio.wait_for(coro(), timeout=self._TIMEOUT_SECONDS)
         except (TimeoutError, OAuthFlowError, asyncio.CancelledError):
             return None
+        except Exception:
+            logger.exception("Unexpected error during automatic login")
 
     async def shutdown(self) -> None:
         if self._task is not None and not self._task.done():
@@ -77,12 +81,13 @@ async def _perform_auto_login(
     oauth_client: OAuthClient,
     store: CredentialStore,
 ) -> None:
-    parsed = urllib.parse.urlparse(oauth_client.redirect_uri)
-    port = int(parsed.port or 8976)
-    state = generate_state()
-    server = OAuthCallbackServer(host="127.0.0.1", port=port, expected_state=state)
-    await server.start()
+    server: OAuthCallbackServer | None = None
     try:
+        parsed = urllib.parse.urlparse(oauth_client.redirect_uri)
+        port = int(parsed.port or 8976)
+        state = generate_state()
+        server = OAuthCallbackServer(host="127.0.0.1", port=port, expected_state=state)
+        await server.start()
         url = oauth_client.build_authorize_url(state)
         webbrowser.open(url)
         code, _returned_state = await server.wait_callback()
@@ -94,8 +99,11 @@ async def _perform_auto_login(
             )
         )
         await auth_provider.refresh()
+    except Exception:
+        logger.exception("Automatic login failed")
     finally:
-        await server.aclose()
+        if server is not None:
+            await server.aclose()
 
 
 def require_auth(
