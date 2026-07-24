@@ -137,11 +137,17 @@ class OAuthClient:
 class OAuthCallbackServer:
     """loopback callback を待ち受ける HTTP サーバー。"""
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 8976) -> None:
+    def __init__(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 8976,
+        expected_state: str | None = None,
+    ) -> None:
         if host != "127.0.0.1":
             raise ValueError("host must be 127.0.0.1")
         self._host = host
         self._port = port
+        self._expected_state = expected_state
         self._server: asyncio.Server | None = None
         self._event = asyncio.Event()
         self._code: str | None = None
@@ -211,7 +217,7 @@ class OAuthCallbackServer:
             return None
         return value[0]
 
-    async def wait_callback(self, expected_state: str) -> tuple[str, str | None]:
+    async def wait_callback(self) -> tuple[str, str | None]:
         await self._event.wait()
         if self._callback_error:
             raise OAuthFlowError(self._callback_error)
@@ -219,7 +225,7 @@ class OAuthCallbackServer:
             raise OAuthFlowError(f"OAuth callback error: {self._error}")
         if self._code is None:
             raise OAuthFlowError("callback did not include code")
-        if self._state != expected_state:
+        if self._expected_state is not None and self._state != self._expected_state:
             raise OAuthFlowError("state mismatch")
         return (self._code, self._state)
 
