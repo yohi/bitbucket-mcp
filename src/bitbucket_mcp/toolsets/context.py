@@ -1,13 +1,21 @@
 """context ツールセット: 現在のユーザーとワークスペース一覧。"""
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from bitbucket_mcp.client import BitbucketClient
+from bitbucket_mcp.credentials import CredentialStore
+from bitbucket_mcp.oauth import OAuthClient
 from bitbucket_mcp.pagination import page_params
+from bitbucket_mcp.toolsets._common import AutoLoginController, require_auth
+
+if TYPE_CHECKING:
+    from bitbucket_mcp.auth import AuthProvider
 
 
 def register(
@@ -16,7 +24,22 @@ def register(
     *,
     read_only: bool,
     default_workspace: str | None = None,
+    auth_provider: AuthProvider | None = None,
+    oauth_client: OAuthClient | None = None,
+    store: CredentialStore | None = None,
 ) -> None:
+    from bitbucket_mcp.auth import StaticAuthProvider
+
+    controller = AutoLoginController()
+
+    def _wrap(fn: Any) -> Any:
+        return require_auth(
+            auth_provider or StaticAuthProvider("Bearer test-token"),
+            controller,
+            oauth_client,
+            store,
+        )(fn)
+
     async def get_current_user() -> dict[str, Any]:
         """Return the currently authenticated Bitbucket user account."""
         return await client.request("GET", "/user")
@@ -43,10 +66,10 @@ def register(
         return await client.request("GET", "/user/workspaces", query=query)
 
     mcp.add_tool(
-        get_current_user,
+        _wrap(get_current_user),
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
     )
     mcp.add_tool(
-        list_workspaces,
+        _wrap(list_workspaces),
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
     )

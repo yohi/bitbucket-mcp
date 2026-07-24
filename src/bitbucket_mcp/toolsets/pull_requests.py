@@ -1,14 +1,21 @@
 """pull_requests ツールセット: PR の参照・作成・更新・マージ・レビュー・コメント。"""
 
-from typing import Any, Literal
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from bitbucket_mcp.client import BitbucketClient
+from bitbucket_mcp.credentials import CredentialStore
 from bitbucket_mcp.models import InlineComment
+from bitbucket_mcp.oauth import OAuthClient
 from bitbucket_mcp.pagination import page_params
-from bitbucket_mcp.toolsets._common import resolve_workspace
+from bitbucket_mcp.toolsets._common import AutoLoginController, require_auth, resolve_workspace
+
+if TYPE_CHECKING:
+    from bitbucket_mcp.auth import AuthProvider
 
 _READ = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
 _WRITE = ToolAnnotations(openWorldHint=True)
@@ -21,7 +28,22 @@ def register(
     *,
     read_only: bool,
     default_workspace: str | None = None,
+    auth_provider: AuthProvider | None = None,
+    oauth_client: OAuthClient | None = None,
+    store: CredentialStore | None = None,
 ) -> None:
+    from bitbucket_mcp.auth import StaticAuthProvider
+
+    controller = AutoLoginController()
+
+    def _wrap(fn: Any) -> Any:
+        return require_auth(
+            auth_provider or StaticAuthProvider("Bearer test-token"),
+            controller,
+            oauth_client,
+            store,
+        )(fn)
+
     async def list_pull_requests(
         *,
         workspace: str | None = None,
@@ -71,8 +93,8 @@ def register(
             return {"content": text, "format": action}
         return await client.request("GET", f"{base}/{action}")
 
-    mcp.add_tool(list_pull_requests, annotations=_READ)
-    mcp.add_tool(get_pull_request, annotations=_READ)
+    mcp.add_tool(_wrap(list_pull_requests), annotations=_READ)
+    mcp.add_tool(_wrap(get_pull_request), annotations=_READ)
 
     if read_only:
         return
@@ -172,20 +194,12 @@ def register(
         workspace: str | None = None,
         repo_slug: str,
         pull_request_id: int,
-        action: Literal[
-            "approve", "unapprove", "request_changes", "unrequest_changes"
-        ],
+        action: Literal["approve", "unapprove", "request_changes", "unrequest_changes"],
     ) -> dict[str, Any]:
         """Approve/unapprove or request/unrequest changes on a pull request."""
         ws = resolve_workspace(workspace, default_workspace)
-        base = (
-            f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}"
-        )
-        endpoint = (
-            "approve"
-            if action in ("approve", "unapprove")
-            else "request-changes"
-        )
+        base = f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}"
+        endpoint = "approve" if action in ("approve", "unapprove") else "request-changes"
         method = "POST" if action in ("approve", "request_changes") else "DELETE"
         return await client.request(method, f"{base}/{endpoint}")
 
@@ -208,9 +222,9 @@ def register(
             body=body,
         )
 
-    mcp.add_tool(create_pull_request, annotations=_WRITE)
-    mcp.add_tool(update_pull_request, annotations=_WRITE)
-    mcp.add_tool(merge_pull_request, annotations=_DESTRUCTIVE)
-    mcp.add_tool(decline_pull_request, annotations=_WRITE)
-    mcp.add_tool(review_pull_request, annotations=_WRITE)
-    mcp.add_tool(add_pull_request_comment, annotations=_WRITE)
+    mcp.add_tool(_wrap(create_pull_request), annotations=_WRITE)
+    mcp.add_tool(_wrap(update_pull_request), annotations=_WRITE)
+    mcp.add_tool(_wrap(merge_pull_request), annotations=_DESTRUCTIVE)
+    mcp.add_tool(_wrap(decline_pull_request), annotations=_WRITE)
+    mcp.add_tool(_wrap(review_pull_request), annotations=_WRITE)
+    mcp.add_tool(_wrap(add_pull_request_comment), annotations=_WRITE)

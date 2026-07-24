@@ -37,6 +37,7 @@ async def register_toolset() -> Any:
         *,
         read_only: bool = False,
         default_workspace: str | None = None,
+        auth_provider: Any | None = None,
     ) -> tuple[FastMCP, BitbucketClient]:
         client = BitbucketClient(
             base_url="https://api.bitbucket.org/2.0",
@@ -44,7 +45,13 @@ async def register_toolset() -> Any:
             backoff_base=0.0,
         )
         mcp = FastMCP("bitbucket-mcp-test")
-        register_fn(mcp, client, read_only=read_only, default_workspace=default_workspace)
+        kwargs: dict[str, object] = {
+            "read_only": read_only,
+            "default_workspace": default_workspace,
+        }
+        if auth_provider is not None:
+            kwargs["auth_provider"] = auth_provider
+        register_fn(mcp, client, **kwargs)
         clients.append(client)
         return mcp, client
 
