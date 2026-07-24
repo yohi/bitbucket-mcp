@@ -81,3 +81,12 @@ bitbucket-mcp --transport {stdio,http} [--host HOST] [--port PORT]
 
 各ツールの詳細な引数、エラーハンドリング、リトライ仕様、および設計ポリシーについては [SPEC.md](./SPEC.md) を参照してください。
 
+## ドキュメント一覧
+
+| ドキュメント | 内容 |
+|---|---|
+| [SPEC.md](./SPEC.md) | 技術仕様（API・認証・ツールセット・エラー処理） |
+| [docs/OAUTH.md](docs/OAUTH.md) | OAuth 認証の設定と利用手順 |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | システムアーキテクチャとデータフロー |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 開発者向けガイド（環境構築・テスト・デバッグ） |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | よくある問題と解決策 |
