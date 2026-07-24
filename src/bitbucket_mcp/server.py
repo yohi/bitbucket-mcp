@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from mcp.server.fastmcp import FastMCP
 
-from bitbucket_mcp.auth import resolve_auth_provider
+from bitbucket_mcp.auth import AuthProvider, resolve_auth_provider
 from bitbucket_mcp.client import BitbucketClient
 from bitbucket_mcp.config import Settings
 from bitbucket_mcp.toolsets import TOOLSET_REGISTRY, raw_api
@@ -17,6 +17,7 @@ def make_lifespan(settings: Settings):
     @asynccontextmanager
     async def lifespan(mcp: FastMCP) -> AsyncGenerator[BitbucketClient, None]:
         client: BitbucketClient | None = None
+        auth_provider: AuthProvider | None = None
         try:
             auth_provider = resolve_auth_provider(settings)
             client = BitbucketClient(base_url=settings.base_url, auth_provider=auth_provider)
@@ -47,6 +48,8 @@ def make_lifespan(settings: Settings):
         finally:
             if client is not None:
                 await client.aclose()
+            if auth_provider is not None:
+                await auth_provider.aclose()
 
     return lifespan
 

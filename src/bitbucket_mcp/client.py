@@ -7,6 +7,7 @@ import anyio
 import httpx
 from mcp.server.fastmcp.exceptions import ToolError
 
+from bitbucket_mcp.auth import NotAuthenticatedError
 from bitbucket_mcp.errors import build_tool_error
 
 if TYPE_CHECKING:
@@ -38,8 +39,6 @@ class BitbucketClient:
         self._backoff_base = backoff_base
 
     async def _authorization_header(self) -> str:
-        from bitbucket_mcp.auth import NotAuthenticatedError
-
         try:
             return await self._auth_provider.authorization_header()
         except NotAuthenticatedError as exc:
@@ -81,9 +80,7 @@ class BitbucketClient:
                 continue
             if response.status_code == 401:
                 raise ToolError("認証に失敗しました。再ログインしてください。Run auth login.")
-            if await self._maybe_retry_for_status(
-                response.status_code, method_upper, attempt
-            ):
+            if await self._maybe_retry_for_status(response.status_code, method_upper, attempt):
                 attempt += 1
                 continue
             return response
@@ -108,8 +105,6 @@ class BitbucketClient:
 
     async def _refresh_auth_header(self) -> dict[str, str]:
         """認証を refresh し、新しい Authorization ヘッダを返す。"""
-        from bitbucket_mcp.auth import NotAuthenticatedError
-
         try:
             await self._auth_provider.refresh()
         except NotAuthenticatedError as exc:

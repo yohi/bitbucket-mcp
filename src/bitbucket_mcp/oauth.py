@@ -40,6 +40,27 @@ class OAuthFlowError(RuntimeError):
 _HTTP_RESPONSE_SUFFIX = b"\r\nConnection: close\r\n\r\n"
 
 
+async def _write_response(
+    writer: asyncio.StreamWriter,
+    status_line: bytes,
+    content_type: bytes,
+    body: bytes,
+) -> None:
+    response = (
+        status_line
+        + b"\r\nContent-Type: "
+        + content_type
+        + b"\r\nContent-Length: "
+        + str(len(body)).encode()
+        + _HTTP_RESPONSE_SUFFIX
+        + body
+    )
+    writer.write(response)
+    await writer.drain()
+    writer.close()
+    await writer.wait_closed()
+
+
 def build_redirect_uri(port: int) -> str:
     return f"http://127.0.0.1:{port}/callback"
 
@@ -60,15 +81,9 @@ class OAuthClient:
         redirect_uri: str,
         scopes: list[str],
     ) -> None:
-        parsed = urllib.parse.urlparse(base_url)
-        hostname = parsed.hostname
-        if (
-            parsed.scheme != "https"
-            or hostname is None
-            or (hostname != "bitbucket.org" and not hostname.endswith(".bitbucket.org"))
-        ):
-            raise ValueError("base_url must use https and be under bitbucket.org")
-        self._base_url = base_url.rstrip("/")
+        from bitbucket_mcp.config import validate_bitbucket_https_url
+
+        self._base_url = validate_bitbucket_https_url(base_url)
         self._client_id = client_id
         self._client_secret = client_secret
         self._redirect_uri = redirect_uri
@@ -202,33 +217,21 @@ class OAuthCallbackServer:
         parsed = urllib.parse.urlparse(path)
         if parsed.path != "/callback":
             body = b"Not Found"
-            response = (
-                b"HTTP/1.1 404 Not Found\r\n"
-                b"Content-Type: text/plain; charset=utf-8\r\n"
-                b"Content-Length: "
-                + str(len(body)).encode()
-                + _HTTP_RESPONSE_SUFFIX
-                + body
+            await _write_response(
+                writer,
+                b"HTTP/1.1 404 Not Found",
+                b"text/plain; charset=utf-8",
+                body,
             )
-            writer.write(response)
-            await writer.drain()
-            writer.close()
-            await writer.wait_closed()
             return
         if self._event.is_set():
             body = b"Already processed"
-            response = (
-                b"HTTP/1.1 409 Conflict\r\n"
-                b"Content-Type: text/plain; charset=utf-8\r\n"
-                b"Content-Length: "
-                + str(len(body)).encode()
-                + _HTTP_RESPONSE_SUFFIX
-                + body
+            await _write_response(
+                writer,
+                b"HTTP/1.1 409 Conflict",
+                b"text/plain; charset=utf-8",
+                body,
             )
-            writer.write(response)
-            await writer.drain()
-            writer.close()
-            await writer.wait_closed()
             return
 
         while True:
@@ -244,15 +247,12 @@ class OAuthCallbackServer:
         body = (
             "\u8a8d\u8a3cOK\u3002\u30bf\u30d6\u3092\u9589\u3058\u3066\u304f\u3060\u3055\u3044\u3002"
         ).encode()
-        response = (
-            b"HTTP/1.1 200 OK\r\n"
-            b"Content-Type: text/html; charset=utf-8\r\n"
-            b"Content-Length: " + str(len(body)).encode() + _HTTP_RESPONSE_SUFFIX + body
+        await _write_response(
+            writer,
+            b"HTTP/1.1 200 OK",
+            b"text/html; charset=utf-8",
+            body,
         )
-        writer.write(response)
-        await writer.drain()
-        writer.close()
-        await writer.wait_closed()
         self._event.set()
 
     @staticmethod

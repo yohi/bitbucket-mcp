@@ -17,6 +17,18 @@ _WRITE_TOOLSET_SCOPES: dict[str, list[str]] = {
 }
 
 
+def validate_bitbucket_https_url(value: str) -> str:
+    parsed = urlparse(value)
+    hostname = parsed.hostname
+    if (
+        parsed.scheme != "https"
+        or hostname is None
+        or (hostname != "bitbucket.org" and not hostname.endswith(".bitbucket.org"))
+    ):
+        raise ValueError("base_url must use https and be under bitbucket.org")
+    return value.rstrip("/")
+
+
 class Settings(BaseSettings):
     """BITBUCKET_* 環境変数から読み込む設定。"""
 
@@ -48,13 +60,7 @@ class Settings(BaseSettings):
     @field_validator("oauth_base_url")
     @classmethod
     def validate_oauth_base_url(cls, value: str) -> str:
-        parsed = urlparse(value)
-        hostname = parsed.hostname
-        if parsed.scheme != "https" or hostname is None:
-            raise ValueError("oauth_base_url must be a valid URL with https scheme")
-        if hostname != "bitbucket.org" and not hostname.endswith(".bitbucket.org"):
-            raise ValueError("oauth_base_url must be under bitbucket.org domain")
-        return value.rstrip("/")
+        return validate_bitbucket_https_url(value)
 
     @field_validator("oauth_callback_port")
     @classmethod
