@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
-from mcp.types import ToolAnnotations
 
 from bitbucket_mcp.client import BitbucketClient
 from bitbucket_mcp.credentials import CredentialStore
@@ -14,6 +13,8 @@ from bitbucket_mcp.models import PipelineTarget
 from bitbucket_mcp.oauth import OAuthClient
 from bitbucket_mcp.pagination import page_params
 from bitbucket_mcp.toolsets._common import (
+    READ,
+    WRITE,
     AutoLoginController,
     resolve_workspace,
     wrap_tool,
@@ -22,8 +23,6 @@ from bitbucket_mcp.toolsets._common import (
 if TYPE_CHECKING:
     from bitbucket_mcp.auth import AuthProvider
 
-_READ = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
-_WRITE = ToolAnnotations(openWorldHint=True)
 
 
 def register(
@@ -82,8 +81,8 @@ def register(
         text = await client.request_text("GET", f"{base}/steps/{step_uuid}/log")
         return {"content": text}
 
-    mcp.add_tool(_wrap(list_pipelines), annotations=_READ)
-    mcp.add_tool(_wrap(get_pipeline), annotations=_READ)
+    mcp.add_tool(_wrap(list_pipelines), annotations=READ)
+    mcp.add_tool(_wrap(get_pipeline), annotations=READ)
 
     if read_only:
         return
@@ -119,5 +118,5 @@ def register(
             f"/repositories/{ws}/{repo_slug}/pipelines/{pipeline_uuid}/stopPipeline",
         )
 
-    mcp.add_tool(_wrap(run_pipeline), annotations=_WRITE)
-    mcp.add_tool(_wrap(stop_pipeline), annotations=_WRITE)
+    mcp.add_tool(_wrap(run_pipeline), annotations=WRITE)
+    mcp.add_tool(_wrap(stop_pipeline), annotations=WRITE)

@@ -6,13 +6,16 @@ from typing import TYPE_CHECKING, Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
-from mcp.types import ToolAnnotations
 
 from bitbucket_mcp.client import BitbucketClient
 from bitbucket_mcp.credentials import CredentialStore
 from bitbucket_mcp.oauth import OAuthClient
 from bitbucket_mcp.pagination import page_params
-from bitbucket_mcp.toolsets._common import AutoLoginController, wrap_tool
+from bitbucket_mcp.toolsets._common import (
+    READ,
+    AutoLoginController,
+    wrap_tool,
+)
 
 if TYPE_CHECKING:
     from bitbucket_mcp.auth import AuthProvider
@@ -58,9 +61,9 @@ def register(
 
     mcp.add_tool(
         _wrap(get_current_user),
-        annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+        annotations=READ,
     )
     mcp.add_tool(
         _wrap(list_workspaces),
-        annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+        annotations=READ,
     )

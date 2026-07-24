@@ -1,5 +1,3 @@
-"""toolset 共通ヘルパ。"""
-
 from __future__ import annotations
 
 import asyncio
@@ -16,6 +14,7 @@ from functools import wraps
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from mcp.server.fastmcp.exceptions import ToolError
+from mcp.types import ToolAnnotations
 
 from bitbucket_mcp.credentials import CredentialStore
 from bitbucket_mcp.oauth import OAuthCallbackServer, OAuthClient, OAuthFlowError, generate_state
@@ -165,3 +164,8 @@ def wrap_tool(
         oauth_client,
         store,
     )
+
+
+READ = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
+WRITE = ToolAnnotations(openWorldHint=True)
+DESTRUCTIVE = ToolAnnotations(destructiveHint=True, openWorldHint=True)

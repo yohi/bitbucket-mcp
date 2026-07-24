@@ -6,13 +6,15 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
-from mcp.types import ToolAnnotations
 
 from bitbucket_mcp.client import BitbucketClient
 from bitbucket_mcp.credentials import CredentialStore
 from bitbucket_mcp.oauth import OAuthClient
 from bitbucket_mcp.pagination import page_params
 from bitbucket_mcp.toolsets._common import (
+    DESTRUCTIVE,
+    READ,
+    WRITE,
     AutoLoginController,
     resolve_workspace,
     wrap_tool,
@@ -21,9 +23,6 @@ from bitbucket_mcp.toolsets._common import (
 if TYPE_CHECKING:
     from bitbucket_mcp.auth import AuthProvider
 
-_READ = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
-_WRITE = ToolAnnotations(openWorldHint=True)
-_DESTRUCTIVE = ToolAnnotations(destructiveHint=True, openWorldHint=True)
 
 
 def register(
@@ -163,14 +162,14 @@ def register(
             query["sort"] = sort
         return await client.request("GET", f"/repositories/{ws}/{repo_slug}/refs/tags", query=query)
 
-    mcp.add_tool(_wrap(list_repositories), annotations=_READ)
-    mcp.add_tool(_wrap(get_repository), annotations=_READ)
-    mcp.add_tool(_wrap(get_file_or_directory), annotations=_READ)
-    mcp.add_tool(_wrap(list_commits), annotations=_READ)
-    mcp.add_tool(_wrap(get_commit), annotations=_READ)
-    mcp.add_tool(_wrap(get_diff), annotations=_READ)
-    mcp.add_tool(_wrap(list_branches), annotations=_READ)
-    mcp.add_tool(_wrap(list_tags), annotations=_READ)
+    mcp.add_tool(_wrap(list_repositories), annotations=READ)
+    mcp.add_tool(_wrap(get_repository), annotations=READ)
+    mcp.add_tool(_wrap(get_file_or_directory), annotations=READ)
+    mcp.add_tool(_wrap(list_commits), annotations=READ)
+    mcp.add_tool(_wrap(get_commit), annotations=READ)
+    mcp.add_tool(_wrap(get_diff), annotations=READ)
+    mcp.add_tool(_wrap(list_branches), annotations=READ)
+    mcp.add_tool(_wrap(list_tags), annotations=READ)
 
     if read_only:
         return
@@ -264,10 +263,10 @@ def register(
             body={"name": name, "target": {"hash": target}},
         )
 
-    mcp.add_tool(_wrap(create_repository), annotations=_WRITE)
-    mcp.add_tool(_wrap(delete_repository), annotations=_DESTRUCTIVE)
-    mcp.add_tool(_wrap(fork_repository), annotations=_WRITE)
-    mcp.add_tool(_wrap(create_commit), annotations=_WRITE)
-    mcp.add_tool(_wrap(create_branch), annotations=_WRITE)
-    mcp.add_tool(_wrap(delete_branch), annotations=_DESTRUCTIVE)
-    mcp.add_tool(_wrap(create_tag), annotations=_WRITE)
+    mcp.add_tool(_wrap(create_repository), annotations=WRITE)
+    mcp.add_tool(_wrap(delete_repository), annotations=DESTRUCTIVE)
+    mcp.add_tool(_wrap(fork_repository), annotations=WRITE)
+    mcp.add_tool(_wrap(create_commit), annotations=WRITE)
+    mcp.add_tool(_wrap(create_branch), annotations=WRITE)
+    mcp.add_tool(_wrap(delete_branch), annotations=DESTRUCTIVE)
+    mcp.add_tool(_wrap(create_tag), annotations=WRITE)

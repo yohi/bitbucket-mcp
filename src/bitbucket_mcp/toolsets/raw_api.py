@@ -6,12 +6,15 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
-from mcp.types import ToolAnnotations
 
 from bitbucket_mcp.client import BitbucketClient
 from bitbucket_mcp.credentials import CredentialStore
 from bitbucket_mcp.oauth import OAuthClient
-from bitbucket_mcp.toolsets._common import AutoLoginController, wrap_tool
+from bitbucket_mcp.toolsets._common import (
+    WRITE,
+    AutoLoginController,
+    wrap_tool,
+)
 
 if TYPE_CHECKING:
     from bitbucket_mcp.auth import AuthProvider
@@ -43,4 +46,4 @@ def register(
         normalized = path if path.startswith("/") else f"/{path}"
         return await client.request(method.upper(), normalized, query=query, body=body)
 
-    mcp.add_tool(_wrap(bitbucket_api), annotations=ToolAnnotations(openWorldHint=True))
+    mcp.add_tool(_wrap(bitbucket_api), annotations=WRITE)

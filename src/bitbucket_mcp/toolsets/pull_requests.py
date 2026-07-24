@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
-from mcp.types import ToolAnnotations
 
 from bitbucket_mcp.client import BitbucketClient
 from bitbucket_mcp.credentials import CredentialStore
@@ -13,6 +12,9 @@ from bitbucket_mcp.models import InlineComment
 from bitbucket_mcp.oauth import OAuthClient
 from bitbucket_mcp.pagination import page_params
 from bitbucket_mcp.toolsets._common import (
+    DESTRUCTIVE,
+    READ,
+    WRITE,
     AutoLoginController,
     resolve_workspace,
     wrap_tool,
@@ -21,9 +23,6 @@ from bitbucket_mcp.toolsets._common import (
 if TYPE_CHECKING:
     from bitbucket_mcp.auth import AuthProvider
 
-_READ = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
-_WRITE = ToolAnnotations(openWorldHint=True)
-_DESTRUCTIVE = ToolAnnotations(destructiveHint=True, openWorldHint=True)
 
 
 def register(
@@ -88,8 +87,8 @@ def register(
             return {"content": text, "format": action}
         return await client.request("GET", f"{base}/{action}")
 
-    mcp.add_tool(_wrap(list_pull_requests), annotations=_READ)
-    mcp.add_tool(_wrap(get_pull_request), annotations=_READ)
+    mcp.add_tool(_wrap(list_pull_requests), annotations=READ)
+    mcp.add_tool(_wrap(get_pull_request), annotations=READ)
 
     if read_only:
         return
@@ -217,9 +216,9 @@ def register(
             body=body,
         )
 
-    mcp.add_tool(_wrap(create_pull_request), annotations=_WRITE)
-    mcp.add_tool(_wrap(update_pull_request), annotations=_WRITE)
-    mcp.add_tool(_wrap(merge_pull_request), annotations=_DESTRUCTIVE)
-    mcp.add_tool(_wrap(decline_pull_request), annotations=_WRITE)
-    mcp.add_tool(_wrap(review_pull_request), annotations=_WRITE)
-    mcp.add_tool(_wrap(add_pull_request_comment), annotations=_WRITE)
+    mcp.add_tool(_wrap(create_pull_request), annotations=WRITE)
+    mcp.add_tool(_wrap(update_pull_request), annotations=WRITE)
+    mcp.add_tool(_wrap(merge_pull_request), annotations=DESTRUCTIVE)
+    mcp.add_tool(_wrap(decline_pull_request), annotations=WRITE)
+    mcp.add_tool(_wrap(review_pull_request), annotations=WRITE)
+    mcp.add_tool(_wrap(add_pull_request_comment), annotations=WRITE)
