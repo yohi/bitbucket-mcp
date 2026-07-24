@@ -37,6 +37,9 @@ class OAuthFlowError(RuntimeError):
     """OAuth フロー内のエラー。"""
 
 
+_HTTP_RESPONSE_SUFFIX = b"\r\nConnection: close\r\n\r\n"
+
+
 def build_redirect_uri(port: int) -> str:
     return f"http://127.0.0.1:{port}/callback"
 
@@ -204,7 +207,7 @@ class OAuthCallbackServer:
                 b"Content-Type: text/plain; charset=utf-8\r\n"
                 b"Content-Length: "
                 + str(len(body)).encode()
-                + b"\r\nConnection: close\r\n\r\n"
+                + _HTTP_RESPONSE_SUFFIX
                 + body
             )
             writer.write(response)
@@ -219,7 +222,7 @@ class OAuthCallbackServer:
                 b"Content-Type: text/plain; charset=utf-8\r\n"
                 b"Content-Length: "
                 + str(len(body)).encode()
-                + b"\r\nConnection: close\r\n\r\n"
+                + _HTTP_RESPONSE_SUFFIX
                 + body
             )
             writer.write(response)
@@ -244,7 +247,7 @@ class OAuthCallbackServer:
         response = (
             b"HTTP/1.1 200 OK\r\n"
             b"Content-Type: text/html; charset=utf-8\r\n"
-            b"Content-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body
+            b"Content-Length: " + str(len(body)).encode() + _HTTP_RESPONSE_SUFFIX + body
         )
         writer.write(response)
         await writer.drain()
@@ -260,7 +263,9 @@ class OAuthCallbackServer:
 
     async def wait_callback(self, timeout: float | None = None) -> tuple[str, str | None]:
         try:
-            await asyncio.wait_for(self._event.wait(), timeout)
+            # Python 3.11+ では asyncio.timeout() を使用
+            async with asyncio.timeout(timeout):
+                await self._event.wait()
         except TimeoutError as exc:
             raise TimeoutError("OAuth callback timed out") from exc
         if self._error:
