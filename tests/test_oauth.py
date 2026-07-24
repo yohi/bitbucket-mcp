@@ -154,7 +154,7 @@ async def test_refresh_token(httpx_mock: HTTPXMock) -> None:
 
 
 async def test_callback_server_collects_code_and_state() -> None:
-    server = OAuthCallbackServer(port=0)
+    server = OAuthCallbackServer(port=0, expected_state="s")
     await server.start()
     port = server.port
     async with httpx.AsyncClient() as http:
@@ -163,7 +163,7 @@ async def test_callback_server_collects_code_and_state() -> None:
             params={"code": "c", "state": "s"},
         )
     assert response.status_code == 200
-    code, state = await server.wait_callback("s")
+    code, state = await server.wait_callback()
     await server.aclose()
     assert code == "c"
     assert state == "s"
@@ -180,12 +180,12 @@ async def test_callback_server_error_raises() -> None:
         )
     assert response.status_code == 200
     with pytest.raises(OAuthFlowError, match="access_denied"):
-        await server.wait_callback("s")
+        await server.wait_callback()
     await server.aclose()
 
 
 async def test_callback_server_rejects_state_mismatch() -> None:
-    server = OAuthCallbackServer(port=0)
+    server = OAuthCallbackServer(port=0, expected_state="expected")
     await server.start()
     port = server.port
     async with httpx.AsyncClient() as http:
@@ -195,7 +195,7 @@ async def test_callback_server_rejects_state_mismatch() -> None:
         )
     assert response.status_code == 200
     with pytest.raises(OAuthFlowError, match="state mismatch"):
-        await server.wait_callback("expected")
+        await server.wait_callback()
     await server.aclose()
 
 
@@ -210,5 +210,5 @@ async def test_callback_server_rejects_unexpected_path() -> None:
         )
     assert response.status_code == 404
     with pytest.raises(OAuthFlowError, match="unexpected callback path"):
-        await server.wait_callback("expected")
+        await server.wait_callback()
     await server.aclose()
