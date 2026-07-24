@@ -7,6 +7,7 @@ import anyio
 import httpx
 from mcp.server.fastmcp.exceptions import ToolError
 
+from bitbucket_mcp.auth import NotAuthenticatedError
 from bitbucket_mcp.errors import build_tool_error
 
 if TYPE_CHECKING:
@@ -38,8 +39,6 @@ class BitbucketClient:
         self._backoff_base = backoff_base
 
     async def _authorization_header(self) -> str:
-        from bitbucket_mcp.auth import NotAuthenticatedError
-
         try:
             return await self._auth_provider.authorization_header()
         except NotAuthenticatedError as exc:
@@ -71,34 +70,48 @@ class BitbucketClient:
                     headers=headers,
                 )
             except httpx.RequestError:
-                if method_upper in _RETRYABLE_METHODS and attempt < self._max_retries:
-                    await anyio.sleep(self._backoff_base * (2**attempt))
+                if await self._maybe_retry(method_upper, attempt):
                     attempt += 1
                     continue
                 raise
             if response.status_code == 401 and not refreshed:
-                from bitbucket_mcp.auth import NotAuthenticatedError
-
-                try:
-                    await self._auth_provider.refresh()
-                    headers = {"Authorization": await self._authorization_header()}
-                except NotAuthenticatedError as exc:
-                    raise ToolError(
-                        f"認証の更新に失敗しました。再ログインしてください。Run auth login. ({exc})"
-                    ) from exc
+                headers = await self._refresh_auth_header()
                 refreshed = True
                 continue
             if response.status_code == 401:
                 raise ToolError("認証に失敗しました。再ログインしてください。Run auth login.")
-            if (
-                response.status_code in _RETRY_STATUSES
-                and method_upper in _RETRYABLE_METHODS
-                and attempt < self._max_retries
-            ):
-                await anyio.sleep(self._backoff_base * (2**attempt))
+            if await self._maybe_retry_for_status(response.status_code, method_upper, attempt):
                 attempt += 1
                 continue
             return response
+
+    async def _maybe_retry(self, method_upper: str, attempt: int) -> bool:
+        """通信エラー時にリトライすべきか判定し、必要なら待機する。"""
+        if method_upper not in _RETRYABLE_METHODS or attempt >= self._max_retries:
+            return False
+        await anyio.sleep(self._backoff_base * (2**attempt))
+        return True
+
+    async def _maybe_retry_for_status(
+        self, status_code: int, method_upper: str, attempt: int
+    ) -> bool:
+        """HTTP エラーステータス時にリトライすべきか判定し、必要なら待機する。"""
+        if status_code not in _RETRY_STATUSES:
+            return False
+        if method_upper not in _RETRYABLE_METHODS or attempt >= self._max_retries:
+            return False
+        await anyio.sleep(self._backoff_base * (2**attempt))
+        return True
+
+    async def _refresh_auth_header(self) -> dict[str, str]:
+        """認証を refresh し、新しい Authorization ヘッダを返す。"""
+        try:
+            await self._auth_provider.refresh()
+        except NotAuthenticatedError as exc:
+            raise ToolError(
+                f"認証の更新に失敗しました。再ログインしてください。Run auth login. ({exc})"
+            ) from exc
+        return {"Authorization": await self._authorization_header()}
 
     async def request(
         self,

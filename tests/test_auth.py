@@ -134,8 +134,9 @@ def test_resolve_unauthenticated_oauth_when_client_configured() -> None:
 
 
 def test_resolve_raises_when_no_credentials() -> None:
+    settings = Settings()
     with pytest.raises(AuthConfigError, match="auth login"):
-        resolve_auth_provider(Settings())
+        resolve_auth_provider(settings)
 
 
 async def test_refresh_token_exchanges_and_saves_rotated_token(
@@ -180,3 +181,23 @@ async def test_refresh_token_exchanges_and_saves_rotated_token(
 def test_resolve_auth_header_keeps_static_compatibility() -> None:
     settings = Settings(token=SecretStr("bear"))
     assert resolve_auth_header(settings) == "Bearer bear"
+
+
+def test_is_near_expiry_treats_zero_as_non_expiring() -> None:
+    provider = OAuthAuthProvider(
+        store=CredentialStore(Path("/dev/null")),
+        oauth_client=_oauth_client(),
+        client_id="cid",
+        client_secret=SecretStr("cs"),
+    )
+    now = int(time.time())
+    creds = StoredCredentials(
+        access_token="a",
+        refresh_token="r",
+        expires_at=0,
+        scopes=["account"],
+        token_type="bearer",
+        client_id="cid",
+        obtained_at=now,
+    )
+    assert provider._is_near_expiry(creds) is False  # pyright: ignore[reportPrivateUsage]  # expires_at <= 0 means non-expiring

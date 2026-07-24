@@ -3,18 +3,20 @@ from __future__ import annotations
 import asyncio
 import base64
 import time
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import anyio
 from pydantic import SecretStr
 
-from bitbucket_mcp.config import Settings
 from bitbucket_mcp.credentials import (
     CredentialStore,
     StoredCredentials,
     default_credential_path,
 )
 from bitbucket_mcp.oauth import OAuthClient
+
+if TYPE_CHECKING:
+    from bitbucket_mcp.config import Settings
 
 
 class AuthConfigError(RuntimeError):
@@ -30,6 +32,8 @@ class AuthProvider(Protocol):
 
     async def refresh(self) -> None: ...
 
+    async def aclose(self) -> None: ...
+
     def is_authenticated(self) -> bool: ...
 
 
@@ -42,6 +46,9 @@ class StaticAuthProvider:
 
     async def refresh(self) -> None:
         return None
+
+    async def aclose(self) -> None:
+        pass
 
     def is_authenticated(self) -> bool:
         return True
@@ -105,17 +112,7 @@ class OAuthAuthProvider:
                         raise NotAuthenticatedError(
                             "再ログインが必要です。`bitbucket-mcp auth login` を実行してください。"
                         )
-                    client = OAuthClient(
-                        base_url=self._oauth_client.base_url,
-                        client_id=self._client_id,
-                        client_secret=self._client_secret.get_secret_value(),
-                        redirect_uri=self._oauth_client.redirect_uri,
-                        scopes=self._oauth_client.scopes,
-                    )
-                    try:
-                        new_tokens = asyncio.run(client.refresh_token(creds.refresh_token))
-                    finally:
-                        asyncio.run(client.aclose())
+                    new_tokens = self._oauth_client.refresh_token_sync(creds.refresh_token)
                     new_creds = new_tokens.to_stored(
                         client_id=self._client_id,
                         obtained_at=int(time.time()),
@@ -127,8 +124,10 @@ class OAuthAuthProvider:
                 _locked_refresh
             )
 
+
     def _is_near_expiry(self, creds: StoredCredentials) -> bool:
         if creds.expires_at <= 0:
+            # expires_at <= 0 is treated as a non-expiring token
             return False
         return int(time.time()) >= creds.expires_at - self._EXPIRY_SKEW_SECONDS
 

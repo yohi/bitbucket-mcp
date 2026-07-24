@@ -33,6 +33,9 @@ async def test_require_auth_returns_message_when_not_authenticated_with_oauth(
         async def refresh(self) -> None:
             pass
 
+        async def aclose(self) -> None:
+            pass
+
         def is_authenticated(self) -> bool:
             return False
 
@@ -65,6 +68,9 @@ async def test_require_auth_returns_busy_when_already_running(
             raise RuntimeError
 
         async def refresh(self) -> None:
+            pass
+
+        async def aclose(self) -> None:
             pass
 
     monkeypatch.setattr("bitbucket_mcp.toolsets._common._display_available", lambda: True)

@@ -135,6 +135,23 @@ class _RefreshableProvider(AuthProvider):
         self.refreshed = True
         self.header = "Bearer new"
 
+    async def aclose(self) -> None:
+        pass
+
+    def is_authenticated(self) -> bool:
+        return True
+
+
+class _RefreshFailsProvider(AuthProvider):
+    async def authorization_header(self) -> str:
+        return "Bearer old"
+
+    async def refresh(self) -> None:
+        raise NotAuthenticatedError("更新に失敗しました")
+
+    async def aclose(self) -> None:
+        pass
+
     def is_authenticated(self) -> bool:
         return True
 
@@ -150,6 +167,18 @@ async def test_401_triggers_refresh_and_retry(httpx_mock: HTTPXMock) -> None:
     assert provider.refreshed is True
     requests = httpx_mock.get_requests()
     assert requests[1].headers["Authorization"] == "Bearer new"
+
+
+async def test_401_refresh_failure_raises_tool_error(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(status_code=401, json={"error": {"message": "expired"}})
+    client = BitbucketClient(
+        base_url=BASE_URL,
+        auth_provider=_RefreshFailsProvider(),
+        backoff_base=0.0,
+    )
+    with pytest.raises(ToolError, match="更新"):
+        await client.request("GET", "/x")
+    await client.aclose()
 
 
 async def test_401_after_refresh_raises_not_authenticated(
@@ -170,6 +199,9 @@ class _UnauthenticatedProvider(AuthProvider):
 
     async def refresh(self) -> None:
         return None
+
+    async def aclose(self) -> None:
+        pass
 
     def is_authenticated(self) -> bool:
         return False

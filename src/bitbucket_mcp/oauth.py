@@ -37,6 +37,30 @@ class OAuthFlowError(RuntimeError):
     """OAuth フロー内のエラー。"""
 
 
+_HTTP_RESPONSE_SUFFIX = b"\r\nConnection: close\r\n\r\n"
+
+
+async def _write_response(
+    writer: asyncio.StreamWriter,
+    status_line: bytes,
+    content_type: bytes,
+    body: bytes,
+) -> None:
+    response = (
+        status_line
+        + b"\r\nContent-Type: "
+        + content_type
+        + b"\r\nContent-Length: "
+        + str(len(body)).encode()
+        + _HTTP_RESPONSE_SUFFIX
+        + body
+    )
+    writer.write(response)
+    await writer.drain()
+    writer.close()
+    await writer.wait_closed()
+
+
 def build_redirect_uri(port: int) -> str:
     return f"http://127.0.0.1:{port}/callback"
 
@@ -57,16 +81,11 @@ class OAuthClient:
         redirect_uri: str,
         scopes: list[str],
     ) -> None:
-        parsed = urllib.parse.urlparse(base_url)
-        hostname = parsed.hostname
-        if (
-            parsed.scheme != "https"
-            or hostname is None
-            or (hostname != "bitbucket.org" and not hostname.endswith(".bitbucket.org"))
-        ):
-            raise ValueError("base_url must use https and be under bitbucket.org")
-        self._base_url = base_url.rstrip("/")
+        from bitbucket_mcp.config import validate_bitbucket_https_url
+
+        self._base_url = validate_bitbucket_https_url(base_url)
         self._client_id = client_id
+        self._client_secret = client_secret
         self._redirect_uri = redirect_uri
         self._scopes = list(scopes)
         self._client = httpx.AsyncClient(
@@ -130,6 +149,31 @@ class OAuthClient:
             token_type=str(payload.get("token_type", "bearer")).lower(),
         )
 
+    def refresh_token_sync(self, refresh_token: str) -> OAuthTokenResponse:
+        data = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+        }
+        return self._token_request_sync(data)
+
+    def _token_request_sync(self, data: dict[str, str]) -> OAuthTokenResponse:
+        with httpx.Client(
+            base_url=self._base_url,
+            auth=(self._client_id, self._client_secret),
+        ) as client:
+            response = client.post("/site/oauth2/access_token", data=data)
+            response.raise_for_status()
+            payload: dict[str, Any] = response.json()
+            scope_text = payload.get("scopes", "")
+            scopes = scope_text.split() if isinstance(scope_text, str) else list(scope_text)
+            return OAuthTokenResponse(
+                access_token=str(payload["access_token"]),
+                refresh_token=str(payload.get("refresh_token", "")),
+                expires_in=int(payload.get("expires_in", 0)),
+                scopes=scopes,
+                token_type=str(payload.get("token_type", "bearer")).lower(),
+            )
+
     async def aclose(self) -> None:
         await self._client.aclose()
 
@@ -173,18 +217,21 @@ class OAuthCallbackServer:
         parsed = urllib.parse.urlparse(path)
         if parsed.path != "/callback":
             body = b"Not Found"
-            response = (
-                b"HTTP/1.1 404 Not Found\r\n"
-                b"Content-Type: text/plain; charset=utf-8\r\n"
-                b"Content-Length: "
-                + str(len(body)).encode()
-                + b"\r\nConnection: close\r\n\r\n"
-                + body
+            await _write_response(
+                writer,
+                b"HTTP/1.1 404 Not Found",
+                b"text/plain; charset=utf-8",
+                body,
             )
-            writer.write(response)
-            await writer.drain()
-            writer.close()
-            await writer.wait_closed()
+            return
+        if self._event.is_set():
+            body = b"Already processed"
+            await _write_response(
+                writer,
+                b"HTTP/1.1 409 Conflict",
+                b"text/plain; charset=utf-8",
+                body,
+            )
             return
 
         while True:
@@ -197,16 +244,15 @@ class OAuthCallbackServer:
         self._state = self._first(query.get("state"))
         self._error = self._first(query.get("error"))
 
-        body = "認証OK。タブを閉じてください。".encode()
-        response = (
-            b"HTTP/1.1 200 OK\r\n"
-            b"Content-Type: text/html; charset=utf-8\r\n"
-            b"Content-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body
+        body = (
+            "\u8a8d\u8a3cOK\u3002\u30bf\u30d6\u3092\u9589\u3058\u3066\u304f\u3060\u3055\u3044\u3002"
+        ).encode()
+        await _write_response(
+            writer,
+            b"HTTP/1.1 200 OK",
+            b"text/html; charset=utf-8",
+            body,
         )
-        writer.write(response)
-        await writer.drain()
-        writer.close()
-        await writer.wait_closed()
         self._event.set()
 
     @staticmethod
@@ -215,8 +261,13 @@ class OAuthCallbackServer:
             return None
         return value[0]
 
-    async def wait_callback(self) -> tuple[str, str | None]:
-        await self._event.wait()
+    async def wait_callback(self, timeout: float | None = None) -> tuple[str, str | None]:
+        try:
+            # Python 3.11+ では asyncio.timeout() を使用
+            async with asyncio.timeout(timeout):
+                await self._event.wait()
+        except TimeoutError as exc:
+            raise TimeoutError("OAuth callback timed out") from exc
         if self._error:
             raise OAuthFlowError(f"OAuth callback error: {self._error}")
         if self._code is None:

@@ -18,8 +18,10 @@ def test_build_redirect_uri() -> None:
 
 
 def test_generate_state_is_random() -> None:
-    assert generate_state() != generate_state()
-    assert len(generate_state()) >= 16
+    state = generate_state()
+    other_state = generate_state()
+    assert state != other_state
+    assert len(state) >= 16
 
 
 def test_oauth_client_public_properties() -> None:
@@ -216,3 +218,30 @@ async def test_callback_server_rejects_unexpected_path() -> None:
     assert response.status_code == 200
     assert await server.wait_callback() == ("c", "expected")
     await server.aclose()
+
+async def test_wait_callback_timeout() -> None:
+    server = OAuthCallbackServer(port=0, expected_state="expected")
+    await server.start()
+    with pytest.raises(TimeoutError):
+        await server.wait_callback(timeout=0.1)
+    await server.aclose()
+
+async def test_callback_server_rejects_second_request() -> None:
+    server = OAuthCallbackServer(port=0, expected_state="expected")
+    await server.start()
+    port = server.port
+    async with httpx.AsyncClient() as http:
+        response = await http.get(
+            f"http://127.0.0.1:{port}/callback",
+            params={"code": "first", "state": "expected"},
+        )
+    assert response.status_code == 200
+    assert await server.wait_callback(timeout=1.0) == ("first", "expected")
+    async with httpx.AsyncClient() as http:
+        response = await http.get(
+            f"http://127.0.0.1:{port}/callback",
+            params={"code": "second", "state": "expected"},
+        )
+    assert response.status_code != 200  # Should be rejected
+    await server.aclose()
+

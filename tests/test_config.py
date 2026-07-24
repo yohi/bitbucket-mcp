@@ -115,3 +115,8 @@ def test_oauth_callback_port_validation() -> None:
         Settings(oauth_callback_port=0)
     with pytest.raises(ValueError):
         Settings(oauth_callback_port=70000)
+
+def test_oauth_base_url_rejects_http() -> None:
+    with pytest.raises(ValueError, match=r"https"):
+        Settings(oauth_base_url="http://bitbucket.org")
+
