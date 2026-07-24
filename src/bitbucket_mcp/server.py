@@ -97,7 +97,7 @@ def make_lifespan(settings: Settings):
                     controller=controller,
                 )
 
-            async def bitbucket_login() -> str:
+            def bitbucket_login() -> str:
                 return _bitbucket_login(auth_provider, controller, oauth_client, store)
 
             mcp.add_tool(

@@ -169,6 +169,7 @@ async def test_server_starts_without_credentials_when_oauth_configured(
 async def test_server_raises_when_no_credentials_at_all() -> None:
     settings = Settings()
     mcp = create_server(settings)
+    lifespan = make_lifespan(settings)(mcp)
     with pytest.raises(AuthConfigError):
-        async with make_lifespan(settings)(mcp):
+        async with lifespan:
             pass
