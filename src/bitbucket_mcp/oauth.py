@@ -57,6 +57,14 @@ class OAuthClient:
         redirect_uri: str,
         scopes: list[str],
     ) -> None:
+        parsed = urllib.parse.urlparse(base_url)
+        hostname = parsed.hostname
+        if (
+            parsed.scheme != "https"
+            or hostname is None
+            or (hostname != "bitbucket.org" and not hostname.endswith(".bitbucket.org"))
+        ):
+            raise ValueError("base_url must use https and be under bitbucket.org")
         self._base_url = base_url.rstrip("/")
         self._client_id = client_id
         self._redirect_uri = redirect_uri
@@ -130,6 +138,8 @@ class OAuthCallbackServer:
     """loopback callback を待ち受ける HTTP サーバー。"""
 
     def __init__(self, host: str = "127.0.0.1", port: int = 8976) -> None:
+        if host != "127.0.0.1":
+            raise ValueError("host must be 127.0.0.1")
         self._host = host
         self._port = port
         self._server: asyncio.Server | None = None
@@ -137,6 +147,7 @@ class OAuthCallbackServer:
         self._code: str | None = None
         self._state: str | None = None
         self._error: str | None = None
+        self._callback_error: str | None = None
 
     @property
     def port(self) -> int:
@@ -153,12 +164,30 @@ class OAuthCallbackServer:
         request_line = await reader.readline()
         parts = request_line.decode().split(" ")
         path = parts[1] if len(parts) > 1 else "/"
+        parsed = urllib.parse.urlparse(path)
+        if parsed.path != "/callback":
+            self._callback_error = "unexpected callback path"
+            body = b"Not Found"
+            response = (
+                b"HTTP/1.1 404 Not Found\r\n"
+                b"Content-Type: text/plain; charset=utf-8\r\n"
+                b"Content-Length: "
+                + str(len(body)).encode()
+                + b"\r\nConnection: close\r\n\r\n"
+                + body
+            )
+            writer.write(response)
+            await writer.drain()
+            writer.close()
+            await writer.wait_closed()
+            self._event.set()
+            return
+
         while True:
             line = await reader.readline()
             if line == b"\r\n":
                 break
 
-        parsed = urllib.parse.urlparse(path)
         query = urllib.parse.parse_qs(parsed.query)
         self._code = self._first(query.get("code"))
         self._state = self._first(query.get("state"))
@@ -182,12 +211,16 @@ class OAuthCallbackServer:
             return None
         return value[0]
 
-    async def wait_callback(self) -> tuple[str, str | None]:
+    async def wait_callback(self, expected_state: str) -> tuple[str, str | None]:
         await self._event.wait()
+        if self._callback_error:
+            raise OAuthFlowError(self._callback_error)
         if self._error:
             raise OAuthFlowError(f"OAuth callback error: {self._error}")
         if self._code is None:
             raise OAuthFlowError("callback did not include code")
+        if self._state != expected_state:
+            raise OAuthFlowError("state mismatch")
         return (self._code, self._state)
 
     async def aclose(self) -> None:
