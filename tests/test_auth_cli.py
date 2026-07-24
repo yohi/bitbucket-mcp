@@ -35,6 +35,24 @@ def test_auth_login_requires_client_config(
     assert "client_id" in captured.err
 
 
+def test_main_returns_2_without_credentials(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # 認証情報なし → AuthConfigError → 終了コード 2
+    assert entry.main(["--transport", "stdio"]) == 2
+    captured = capsys.readouterr()
+    assert "auth login" in captured.err
+
+
+def test_main_handles_settings_validation_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("BITBUCKET_READ_ONLY", "not-a-bool")
+    assert entry.main(["--transport", "stdio"]) == 2
+    captured = capsys.readouterr()
+    assert "設定" in captured.err
+
+
 def test_manual_login_rejects_mismatched_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
