@@ -36,9 +36,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
 
-    auth = parser.add_subparsers(dest="command").add_parser(
-        "auth", help="認証関連コマンド"
-    )
+    auth = parser.add_subparsers(dest="command").add_parser("auth", help="認証関連コマンド")
     auth_sub = auth.add_subparsers(dest="auth_command")
 
     login = auth_sub.add_parser("login", help="ブラウザ OAuth でログイン")
@@ -116,7 +114,7 @@ async def _run_login(settings: Settings, manual: bool, port: int | None) -> int:
                 f"貼り付けてください:\n{authorize_url}"
             )
             code = getpass.getpass("authorization code: ").strip()
-            returned_state = state
+            returned_state = getpass.getpass("state: ").strip()
         else:
             if not _display_available():
                 print(
@@ -128,6 +126,7 @@ async def _run_login(settings: Settings, manual: bool, port: int | None) -> int:
             await server.start()
             if server.port != callback_port:
                 redirect_uri = build_redirect_uri(server.port)
+                await oauth_client.aclose()
                 oauth_client = OAuthClient(
                     base_url=settings.oauth_base_url,
                     client_id=client_id,

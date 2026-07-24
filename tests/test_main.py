@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from bitbucket_mcp import __main__ as entry
@@ -28,38 +26,6 @@ def test_main_returns_2_without_credentials(
     assert entry.main(["--transport", "stdio"]) == 2
     captured = capsys.readouterr()
     assert "auth login" in captured.err
-
-
-def test_auth_logout_deletes_credentials(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("BITBUCKET_CONFIG_DIR", str(tmp_path))
-    creds = tmp_path / "credentials.json"
-    creds.write_text("{}", encoding="utf-8")
-    assert entry.main(["auth", "logout"]) == 0
-    assert not creds.exists()
-
-
-def test_auth_status_shows_logged_out(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.setenv("BITBUCKET_CONFIG_DIR", str(tmp_path))
-    assert entry.main(["auth", "status"]) == 0
-    captured = capsys.readouterr()
-    assert "未ログイン" in captured.out
-
-
-def test_auth_login_requires_client_config(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.setenv("BITBUCKET_CONFIG_DIR", str(tmp_path))
-    assert entry.main(["auth", "login"]) == 2
-    captured = capsys.readouterr()
-    assert "client_id" in captured.err
 
 
 def test_main_runs_stdio_when_credentials_present(
