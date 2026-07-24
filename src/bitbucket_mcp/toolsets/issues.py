@@ -1,14 +1,21 @@
 """issues ツールセット: イシューの参照・作成・更新・削除・コメント。"""
 
-from typing import Any, Literal
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from bitbucket_mcp.client import BitbucketClient
+from bitbucket_mcp.credentials import CredentialStore
+from bitbucket_mcp.oauth import OAuthClient
 from bitbucket_mcp.pagination import page_params
-from bitbucket_mcp.toolsets._common import resolve_workspace
+from bitbucket_mcp.toolsets._common import AutoLoginController, require_auth, resolve_workspace
+
+if TYPE_CHECKING:
+    from bitbucket_mcp.auth import AuthProvider
 
 _READ = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
 _WRITE = ToolAnnotations(openWorldHint=True)
@@ -21,7 +28,22 @@ def register(
     *,
     read_only: bool,
     default_workspace: str | None = None,
+    auth_provider: AuthProvider | None = None,
+    oauth_client: OAuthClient | None = None,
+    store: CredentialStore | None = None,
 ) -> None:
+    from bitbucket_mcp.auth import StaticAuthProvider
+
+    controller = AutoLoginController()
+
+    def _wrap(fn: Any) -> Any:
+        return require_auth(
+            auth_provider or StaticAuthProvider("Bearer test-token"),
+            controller,
+            oauth_client,
+            store,
+        )(fn)
+
     async def list_issues(
         *,
         workspace: str | None = None,
@@ -38,9 +60,7 @@ def register(
             query["q"] = q
         if sort:
             query["sort"] = sort
-        return await client.request(
-            "GET", f"/repositories/{ws}/{repo_slug}/issues", query=query
-        )
+        return await client.request("GET", f"/repositories/{ws}/{repo_slug}/issues", query=query)
 
     async def get_issue(
         *,
@@ -56,8 +76,8 @@ def register(
             return await client.request("GET", base)
         return await client.request("GET", f"{base}/{action}")
 
-    mcp.add_tool(list_issues, annotations=_READ)
-    mcp.add_tool(get_issue, annotations=_READ)
+    mcp.add_tool(_wrap(list_issues), annotations=_READ)
+    mcp.add_tool(_wrap(get_issue), annotations=_READ)
 
     if read_only:
         return
@@ -83,9 +103,7 @@ def register(
             body["priority"] = priority
         if assignee:
             body["assignee"] = {"account_id": assignee}
-        return await client.request(
-            "POST", f"/repositories/{ws}/{repo_slug}/issues", body=body
-        )
+        return await client.request("POST", f"/repositories/{ws}/{repo_slug}/issues", body=body)
 
     async def update_issue(
         *,
@@ -122,9 +140,7 @@ def register(
     ) -> dict[str, Any]:
         """Delete an issue. Destructive."""
         ws = resolve_workspace(workspace, default_workspace)
-        return await client.request(
-            "DELETE", f"/repositories/{ws}/{repo_slug}/issues/{issue_id}"
-        )
+        return await client.request("DELETE", f"/repositories/{ws}/{repo_slug}/issues/{issue_id}")
 
     async def add_issue_comment(
         *,
@@ -141,7 +157,7 @@ def register(
             body={"content": {"raw": content}},
         )
 
-    mcp.add_tool(create_issue, annotations=_WRITE)
-    mcp.add_tool(update_issue, annotations=_WRITE)
-    mcp.add_tool(delete_issue, annotations=_DESTRUCTIVE)
-    mcp.add_tool(add_issue_comment, annotations=_WRITE)
+    mcp.add_tool(_wrap(create_issue), annotations=_WRITE)
+    mcp.add_tool(_wrap(update_issue), annotations=_WRITE)
+    mcp.add_tool(_wrap(delete_issue), annotations=_DESTRUCTIVE)
+    mcp.add_tool(_wrap(add_issue_comment), annotations=_WRITE)

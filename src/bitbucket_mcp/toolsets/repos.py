@@ -1,14 +1,21 @@
 """repos ツールセット: リポジトリ・コミット・ブランチ・タグ・差分。"""
 
-from typing import Any, Literal
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from bitbucket_mcp.client import BitbucketClient
+from bitbucket_mcp.credentials import CredentialStore
+from bitbucket_mcp.oauth import OAuthClient
 from bitbucket_mcp.pagination import page_params
-from bitbucket_mcp.toolsets._common import resolve_workspace
+from bitbucket_mcp.toolsets._common import AutoLoginController, require_auth, resolve_workspace
+
+if TYPE_CHECKING:
+    from bitbucket_mcp.auth import AuthProvider
 
 _READ = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
 _WRITE = ToolAnnotations(openWorldHint=True)
@@ -21,7 +28,22 @@ def register(
     *,
     read_only: bool,
     default_workspace: str | None = None,
+    auth_provider: AuthProvider | None = None,
+    oauth_client: OAuthClient | None = None,
+    store: CredentialStore | None = None,
 ) -> None:
+    from bitbucket_mcp.auth import StaticAuthProvider
+
+    controller = AutoLoginController()
+
+    def _wrap(fn: Any) -> Any:
+        return require_auth(
+            auth_provider or StaticAuthProvider("Bearer test-token"),
+            controller,
+            oauth_client,
+            store,
+        )(fn)
+
     async def list_repositories(
         *,
         workspace: str | None = None,
@@ -42,9 +64,7 @@ def register(
             query["role"] = role
         return await client.request("GET", f"/repositories/{ws}", query=query)
 
-    async def get_repository(
-        *, workspace: str | None = None, repo_slug: str
-    ) -> dict[str, Any]:
+    async def get_repository(*, workspace: str | None = None, repo_slug: str) -> dict[str, Any]:
         """Get a single repository's metadata."""
         ws = resolve_workspace(workspace, default_workspace)
         return await client.request("GET", f"/repositories/{ws}/{repo_slug}")
@@ -93,9 +113,7 @@ def register(
     ) -> dict[str, Any]:
         """Get a single commit by hash."""
         ws = resolve_workspace(workspace, default_workspace)
-        return await client.request(
-            "GET", f"/repositories/{ws}/{repo_slug}/commit/{commit}"
-        )
+        return await client.request("GET", f"/repositories/{ws}/{repo_slug}/commit/{commit}")
 
     async def get_diff(
         *,
@@ -148,18 +166,16 @@ def register(
             query["q"] = q
         if sort:
             query["sort"] = sort
-        return await client.request(
-            "GET", f"/repositories/{ws}/{repo_slug}/refs/tags", query=query
-        )
+        return await client.request("GET", f"/repositories/{ws}/{repo_slug}/refs/tags", query=query)
 
-    mcp.add_tool(list_repositories, annotations=_READ)
-    mcp.add_tool(get_repository, annotations=_READ)
-    mcp.add_tool(get_file_or_directory, annotations=_READ)
-    mcp.add_tool(list_commits, annotations=_READ)
-    mcp.add_tool(get_commit, annotations=_READ)
-    mcp.add_tool(get_diff, annotations=_READ)
-    mcp.add_tool(list_branches, annotations=_READ)
-    mcp.add_tool(list_tags, annotations=_READ)
+    mcp.add_tool(_wrap(list_repositories), annotations=_READ)
+    mcp.add_tool(_wrap(get_repository), annotations=_READ)
+    mcp.add_tool(_wrap(get_file_or_directory), annotations=_READ)
+    mcp.add_tool(_wrap(list_commits), annotations=_READ)
+    mcp.add_tool(_wrap(get_commit), annotations=_READ)
+    mcp.add_tool(_wrap(get_diff), annotations=_READ)
+    mcp.add_tool(_wrap(list_branches), annotations=_READ)
+    mcp.add_tool(_wrap(list_tags), annotations=_READ)
 
     if read_only:
         return
@@ -177,18 +193,12 @@ def register(
         body: dict[str, Any] = {"scm": scm, "is_private": is_private}
         if project_key:
             body["project"] = {"key": project_key}
-        return await client.request(
-            "POST", f"/repositories/{ws}/{repo_slug}", body=body
-        )
+        return await client.request("POST", f"/repositories/{ws}/{repo_slug}", body=body)
 
-    async def delete_repository(
-        *, workspace: str | None = None, repo_slug: str
-    ) -> dict[str, Any]:
+    async def delete_repository(*, workspace: str | None = None, repo_slug: str) -> dict[str, Any]:
         """Delete a repository. Destructive."""
         ws = resolve_workspace(workspace, default_workspace)
-        return await client.request(
-            "DELETE", f"/repositories/{ws}/{repo_slug}"
-        )
+        return await client.request("DELETE", f"/repositories/{ws}/{repo_slug}")
 
     async def fork_repository(
         *,
@@ -204,9 +214,7 @@ def register(
             body["name"] = name
         if target_workspace:
             body["workspace"] = {"slug": target_workspace}
-        return await client.request(
-            "POST", f"/repositories/{ws}/{repo_slug}/forks", body=body
-        )
+        return await client.request("POST", f"/repositories/{ws}/{repo_slug}/forks", body=body)
 
     async def create_commit(
         *,
@@ -228,9 +236,7 @@ def register(
             form["branch"] = branch
         for file_path, content in files.items():
             form[file_path] = content
-        return await client.request(
-            "POST", f"/repositories/{ws}/{repo_slug}/src", form=form
-        )
+        return await client.request("POST", f"/repositories/{ws}/{repo_slug}/src", form=form)
 
     async def create_branch(
         *, workspace: str | None = None, repo_slug: str, name: str, target: str
@@ -263,10 +269,10 @@ def register(
             body={"name": name, "target": {"hash": target}},
         )
 
-    mcp.add_tool(create_repository, annotations=_WRITE)
-    mcp.add_tool(delete_repository, annotations=_DESTRUCTIVE)
-    mcp.add_tool(fork_repository, annotations=_WRITE)
-    mcp.add_tool(create_commit, annotations=_WRITE)
-    mcp.add_tool(create_branch, annotations=_WRITE)
-    mcp.add_tool(delete_branch, annotations=_DESTRUCTIVE)
-    mcp.add_tool(create_tag, annotations=_WRITE)
+    mcp.add_tool(_wrap(create_repository), annotations=_WRITE)
+    mcp.add_tool(_wrap(delete_repository), annotations=_DESTRUCTIVE)
+    mcp.add_tool(_wrap(fork_repository), annotations=_WRITE)
+    mcp.add_tool(_wrap(create_commit), annotations=_WRITE)
+    mcp.add_tool(_wrap(create_branch), annotations=_WRITE)
+    mcp.add_tool(_wrap(delete_branch), annotations=_DESTRUCTIVE)
+    mcp.add_tool(_wrap(create_tag), annotations=_WRITE)

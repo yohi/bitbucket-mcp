@@ -1,15 +1,22 @@
 """pipelines ツールセット: パイプラインの参照・実行・停止。"""
 
-from typing import Any, Literal
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from bitbucket_mcp.client import BitbucketClient
+from bitbucket_mcp.credentials import CredentialStore
 from bitbucket_mcp.models import PipelineTarget
+from bitbucket_mcp.oauth import OAuthClient
 from bitbucket_mcp.pagination import page_params
-from bitbucket_mcp.toolsets._common import resolve_workspace
+from bitbucket_mcp.toolsets._common import AutoLoginController, require_auth, resolve_workspace
+
+if TYPE_CHECKING:
+    from bitbucket_mcp.auth import AuthProvider
 
 _READ = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
 _WRITE = ToolAnnotations(openWorldHint=True)
@@ -21,7 +28,22 @@ def register(
     *,
     read_only: bool,
     default_workspace: str | None = None,
+    auth_provider: AuthProvider | None = None,
+    oauth_client: OAuthClient | None = None,
+    store: CredentialStore | None = None,
 ) -> None:
+    from bitbucket_mcp.auth import StaticAuthProvider
+
+    controller = AutoLoginController()
+
+    def _wrap(fn: Any) -> Any:
+        return require_auth(
+            auth_provider or StaticAuthProvider("Bearer test-token"),
+            controller,
+            oauth_client,
+            store,
+        )(fn)
+
     async def list_pipelines(
         *,
         workspace: str | None = None,
@@ -62,13 +84,11 @@ def register(
             )
         if step_uuid is None:
             raise ToolError("action='step_log' には step_uuid が必要です。")
-        text = await client.request_text(
-            "GET", f"{base}/steps/{step_uuid}/log"
-        )
+        text = await client.request_text("GET", f"{base}/steps/{step_uuid}/log")
         return {"content": text}
 
-    mcp.add_tool(list_pipelines, annotations=_READ)
-    mcp.add_tool(get_pipeline, annotations=_READ)
+    mcp.add_tool(_wrap(list_pipelines), annotations=_READ)
+    mcp.add_tool(_wrap(get_pipeline), annotations=_READ)
 
     if read_only:
         return
@@ -92,9 +112,7 @@ def register(
         body: dict[str, Any] = {"target": target_body}
         if variables:
             body["variables"] = variables
-        return await client.request(
-            "POST", f"/repositories/{ws}/{repo_slug}/pipelines/", body=body
-        )
+        return await client.request("POST", f"/repositories/{ws}/{repo_slug}/pipelines/", body=body)
 
     async def stop_pipeline(
         *, workspace: str | None = None, repo_slug: str, pipeline_uuid: str
@@ -106,5 +124,5 @@ def register(
             f"/repositories/{ws}/{repo_slug}/pipelines/{pipeline_uuid}/stopPipeline",
         )
 
-    mcp.add_tool(run_pipeline, annotations=_WRITE)
-    mcp.add_tool(stop_pipeline, annotations=_WRITE)
+    mcp.add_tool(_wrap(run_pipeline), annotations=_WRITE)
+    mcp.add_tool(_wrap(stop_pipeline), annotations=_WRITE)
