@@ -63,7 +63,7 @@
 
 **新規**
 
-- **`oauth.py`** — OAuth フロー本体。認可 URL 生成（`state` による CSRF 対策 + scope）、loopback callback リスナ、手動 OOB フォールバック、認可コード交換、トークンリフレッシュ。エンドポイントは `https://bitbucket.org/site/oauth2/{authorize,access_token}`（設定で上書き可能・テスト用）。
+- **`oauth.py`** — OAuth フロー本体。認可 URL 生成（`state` による CSRF 対策 + scope）、loopback callback リスナ、手動 OOB フォールバック、認可コード交換、トークンリフレッシュ。エンドポイントは既定で `https://bitbucket.org/site/oauth2/{authorize,access_token}` に固定。テストでベース URL を差し替える場合は `OAuthClient(base_url=...)` のようなコンストラクタ DI を用い、本番の設定経路（`BITBUCKET_OAUTH_BASE_URL`）は `bitbucket.org` ドメインの allowlist 検証を通過した値のみ許可する（§10・§12 参照）。
 - **`credentials.py`** — トークンストア。パス解決・アトミック書き込み・`0600` 権限・読み出し・破損耐性・削除。
 
 **変更**
@@ -73,7 +73,7 @@
 - **`config.py`** — OAuth 関連の設定項目を追加（§10）。
 - **`server.py`** — lifespan で `resolve_auth_provider()` を用いて `BitbucketClient(base_url, auth_provider)` を生成。**未ログインでもハードフェイルせず起動**し、ツール登録を行う。`bitbucket_login` ツールを常時登録。
 - **`__main__.py`** — argparse を subparser 化し `auth` サブコマンド群を追加（§5）。サブコマンドなしは従来どおりサーバ起動（後方互換）。
-- **`toolsets/`** — 遅延自動ログインのフック（初回呼び出しで未ログイン検知 → OAuth フロー起動）。共通ヘルパ `_common.py` に集約し各ツールから利用。
+- **`toolsets/`** — 遅延自動ログインのフック（初回呼び出しで未ログイン検知 → OAuth フロー起動）。共通ヘルパ `_common.py` に集約し、`TOOLSET_REGISTRY` 経由の各ツールに加えて、`server.py` で `TOOLSET_REGISTRY` の外側で個別に登録される `raw_api`（`bitbucket_api`）にも同じフックを適用する（現行 `server.py` は `raw_api.register()` をレジストリループとは別経路・常時呼び出しで登録しているため、実装時に見落とさないこと）。
 
 > 各ファイルは 250 LOC 上限（programming 規約）を守る。`oauth.py` が肥大化する場合は `oauth_flow.py`（フロー）/`oauth_token.py`（交換・更新）に分割する。
 
@@ -93,9 +93,11 @@
 | コマンド | 動作 |
 |---|---|
 | `bitbucket-mcp`（サブコマンドなし） | 従来どおりサーバ起動（`--transport/--host/--port` 維持） |
-| `bitbucket-mcp auth login` | ブラウザ OAuth を実行しトークン保存。オプション: `--manual`（手動貼り付け強制）, `--port N`（loopback ポート上書き） |
+| `bitbucket-mcp auth login` | ブラウザ OAuth を実行しトークン保存。オプション: `--manual`（手動貼り付け強制）, `--port N`（Bitbucket コンシューマに登録済みの callback URL のポートと一致する場合のみ使用可。未登録ポートを指定した場合は起動前に警告し、検証・テスト用途である旨を案内） |
 | `bitbucket-mcp auth status` | 保存済み資格情報の有無・アカウント・スコープ・失効時刻を表示 |
 | `bitbucket-mcp auth logout` | 保存トークンを削除 |
+
+> **redirect_uri の一元生成**: callback URL（`redirect_uri`）は `oauth.py` 内の単一の関数（例: `build_redirect_uri(port)`）で `http://127.0.0.1:PORT/callback` として生成し、認可 URL 生成（authorize リクエスト）とトークン交換（access_token リクエスト）の両方に同じ値を渡す。Bitbucket は登録済み callback URL との厳密一致を要求するため、`--port` は登録済み URL に対応するポートのみを許可する。
 
 ### 5.2 MCP ツール
 
@@ -107,13 +109,14 @@
 
 ### 6.1 抽象
 
-- `AuthProvider`（インタフェース）: `async def authorization_header() -> str`、`async def refresh() -> None`。
-- `StaticAuthProvider(header)`: 既存の Basic/Bearer。`refresh()` は no-op、401 は従来どおり送出。
-- `OAuthAuthProvider(store, oauth_client, settings)`: 保存トークンから Bearer を返す。失効（または失効直前スキュー、例 60秒）なら `refresh_token` + client 資格で更新し、**回転後トークンを即保存**してから返す。多重リフレッシュ防止に asyncio ロックを用いる。
+- `AuthProvider`（インタフェース）: `async def authorization_header() -> str`、`async def refresh() -> None`、`def is_authenticated() -> bool`（同期・ネットワークアクセス無しで判定可能）。
+- `StaticAuthProvider(header)`: 既存の Basic/Bearer。`is_authenticated()` は常に `True`。`refresh()` は no-op、401 は従来どおり送出。
+- `OAuthAuthProvider(store, oauth_client, settings)`: 保存トークンから Bearer を返す。失効（または失効直前スキュー、例 60秒）なら `refresh_token` + client 資格で更新し、**回転後トークンを即保存**してから返す。**プロセス内**の多重リフレッシュ防止に asyncio ロックを用いる。加えて、`credentials.json` は CLI（`auth login`/`auth status`）とサーバプロセスなど**複数プロセスから共有**されうるため、`credentials.py` にファイルロック（例: `flock`／`filelock`）または保存データの世代（`obtained_at`/更新カウンタ）比較による競合検出を導入し、「トークン再読込 → refresh 実行 → 回転後トークン保存」を単一のプロセス間排他区間として実行する。回転型 refresh_token（旧トークン再利用不可）はプロセス間排他が無いと片方の refresh が他方のトークンを無効化し不用意な再ログインを強制するため、この保護は §8.3 の実行時トークン更新を含め `credentials.py` を書き込む全ての refresh 経路に適用する。**未ログイン状態**（トークン未保存、または refresh_token 失効済みで再ログインが必須）では `is_authenticated()` が `False` を返し、`authorization_header()` 呼び出しは `NotAuthenticatedError`（新規例外。`AuthConfigError` とは区別）を送出する。
+- **未ログイン検知とログイン起動の契約**: `toolsets/_common.py` の遅延ログインフックは、ツール実行前に `auth_provider.is_authenticated()` を同期チェックする。`False` の場合のみ §8.2 の自動ログインフローを起動し、`authorization_header()` は呼ばない。`client.py` は `authorization_header()` から `NotAuthenticatedError` を受け取った場合、401 と同様に `ToolError`（再ログイン案内）へ変換して送出する。認証済みプロバイダの refresh・永続化の挙動（本節・§8.3）は変更しない。
 
 ### 6.2 解決優先順位 `resolve_auth_provider(settings)`
 
-1. **保存済み OAuth トークンが存在** → `OAuthAuthProvider`
+1. **保存済み OAuth トークンが存在し、その `client_id` が現在設定されている `BITBUCKET_OAUTH_CLIENT_ID` と一致** → `OAuthAuthProvider`。**不一致（または OAuth の client_id/secret 自体が未設定）の場合は保存トークンを採用せず**、下記 4. の未ログイン分岐に進み再ログインを促す（§7 の「`client_id` 不一致なら再ログインを促す」と整合）。
 2. `BITBUCKET_EMAIL` + `BITBUCKET_API_TOKEN` → `StaticAuthProvider`(Basic)
 3. `BITBUCKET_TOKEN` → `StaticAuthProvider`(Bearer)
 4. いずれも無い場合:
@@ -152,7 +155,7 @@
 1. config から client_id/secret を読む（無ければ設定手順を案内して終了）。
 2. `state`（乱数）と scope を付与した認可 URL を生成。
 3. 固定ポートで loopback リスナ起動 → `webbrowser.open()`。`--manual` 時はリスナを起動せず URL を表示。
-4. 利用者が同意 → Bitbucket が `http://localhost:PORT/callback?code=…&state=…` へリダイレクト → リスナが回収（`--manual` は端末貼り付け）。
+4. 利用者が同意 → Bitbucket が `http://127.0.0.1:PORT/callback?code=…&state=…` へリダイレクト → リスナが回収（`--manual` は端末貼り付け）。
 5. `state` 検証 → 認可コードを交換（`grant_type=authorization_code`, Basic client 資格） → access/refresh/expires/scopes 取得。
 6. `CredentialStore` に保存 → アカウント・スコープ・失効時刻を表示。
 
@@ -161,7 +164,8 @@
 - **トリガ**: 初回の Bitbucket ツール呼び出しで未ログインを検知。
 - **条件**: ローカル stdio + ディスプレイ有 + OAuth client_id/secret 設定済み。
 - **挙動（非ブロッキング）**: `webbrowser.open()` + 背景 loopback リスナ起動。当該ツール呼び出しは待たずに「Bitbucket 認証をブラウザで開始しました。同意後に操作を再実行してください」を返す。背景で callback を回収しトークンを保存 → 次回呼び出しから成功。
-- **多重起動防止**: フロー実行中はロック/フラグで管理。実行中の追加呼び出しは「認証処理中です。少し待って再実行してください」を返す。
+- **タイムアウトと後始末**: 背景リスナには既定 5 分のタイムアウトを設ける。以下いずれの契機でもリスナソケットを close し背景タスクを終了/キャンセルする: (a) callback 受信・トークン保存の成功、(b) タイムアウト到達、(c) MCP サーバの shutdown（lifespan 終了時に確実にキャンセルする）。
+- **多重起動防止**: フロー実行中はロック/フラグで管理。実行中の追加呼び出しは「認証処理中です。少し待って再実行してください」を返す。**タイムアウト・`state` 不一致・トークン交換エラー・サーバ shutdown によるキャンセルを含む、すべての失敗パスでロック/フラグを解放**し、次回呼び出しで自動ログインを再試行できることを保証する。
 - **条件を満たさない場合**（headless・ディスプレイなし・client 未設定）: ブラウザを開かず、トークン fallback（`BITBUCKET_TOKEN`）または `auth login` 手順を案内する `ToolError`。
 
 ### 8.3 実行時トークン更新
@@ -181,6 +185,7 @@
 | OAuth 設定済み・未ログイン（headless） | `ToolError`: トークン fallback か `auth login` を案内 |
 | refresh 失効(>3ヶ月/失効) | `ToolError`/CLI エラー: 「再ログイン（`auth login`）が必要」 |
 | loopback ポート競合 | エラー: `--port` 変更または `--manual` を案内 |
+| 背景ログインのタイムアウト | ロック/フラグを解放し、リスナを終了。次回呼び出しで自動ログインを再試行可能にする |
 | `state` 不一致 | 中断（CSRF 疑い）。再試行を案内 |
 | callback URL 拒否（Bitbucket） | `--manual` と、コンシューマ callback 登録確認を案内 |
 
@@ -194,16 +199,19 @@
 | `BITBUCKET_OAUTH_CLIENT_SECRET` | 同 client_secret（`SecretStr`） | (なし) |
 | `BITBUCKET_OAUTH_CALLBACK_PORT` | loopback 待受ポート | `8976` |
 | `BITBUCKET_CONFIG_DIR` | トークン保存ディレクトリ上書き | (XDG 既定) |
-| `BITBUCKET_OAUTH_BASE_URL` | authorize/token のホスト（テスト用上書き） | `https://bitbucket.org` |
+| `BITBUCKET_OAUTH_BASE_URL` | authorize/token のホスト（`bitbucket.org` またはそのサブドメインのみ許可。allowlist 外の値は起動時に `AuthConfigError`） | `https://bitbucket.org` |
 
 既存変数（`BITBUCKET_TOKEN` / `EMAIL` / `API_TOKEN` / `DEFAULT_WORKSPACE` / `TOOLSETS` / `READ_ONLY` / `BASE_URL`）は不変。
+
+> `BITBUCKET_OAUTH_BASE_URL` は任意ホストへの上書きを許さない（authorize/token リクエストが攻撃者ホストへ誘導され `client_secret` や認可コードが漏洩する事故を防止）。任意ホストへの差し替えが必要なのはテストのみであり、その場合は環境変数ではなく `OAuthClient` などのコード側 DI を使う。
 
 ---
 
 ## 11. スコープ方針
 
-- 既定要求スコープ: `account repository repository:write pullrequest pullrequest:write issue issue:write pipeline pipeline:write`。
-- `BITBUCKET_READ_ONLY=true` の場合は read 系のみ要求（`account repository pullrequest issue pipeline`）。
+- **既定要求スコープ（最小権限）**: `account repository pullrequest issue pipeline`（read 系のみ）。write 系スコープ（`repository:write` / `pullrequest:write` / `issue:write` / `pipeline:write`）は既定では要求しない。
+- write 系スコープは、有効化されている `BITBUCKET_TOOLSETS` の各 toolset が書き込み系ツール（作成・更新・削除・マージ等）を含み、かつ `BITBUCKET_READ_ONLY=false` の場合にのみ、該当分だけ動的に算出して追加要求する。
+- `BITBUCKET_READ_ONLY=true` の場合は toolset 構成に関わらず read 系のみ要求する。
 - 削除系ツール（`delete_repository` 等）を使う場合は、コンシューマ登録時に `repository:admin` 等を付与する旨を文書化。
 - スコープはコンシューマ登録時に付与されている必要があり、authorize 要求はその部分集合。
 
@@ -215,6 +223,7 @@
 - トークンファイルは `0600`、親ディレクトリ `0700`。
 - CSRF 対策に `state` を必須検証。
 - loopback リスナは `127.0.0.1` にのみバインド（外部公開しない）。
+- `BITBUCKET_OAUTH_BASE_URL` は `bitbucket.org` ドメインの allowlist で検証し、任意ホストへの authorize/token リクエスト誘導（資格情報・認可コードの漏洩）を防止する。テスト用のエンドポイント差し替えはコード側 DI で行い、本番の設定経路（環境変数）を迂回させない。
 - ログにアクセストークン/リフレッシュトークン/secret を出力しない（既存のエラーフォーマットにトークンが混入しないことも確認）。
 
 ---
@@ -222,10 +231,10 @@
 ## 13. テスト方針（TDD / pytest + pytest-httpx）
 
 - **oauth**: 認可 URL 生成（client_id/scope/state/response_type）、コード交換のリクエスト組み立てとレスポンス解釈、リフレッシュ要求と回転トークンの保存。
-- **credentials**: 保存/読込ラウンドトリップ、`0600` 権限、パス解決（XDG/env）、アトミック書き込み、破損ファイル耐性、削除。
-- **auth provider**: 解決優先順位（OAuth > Basic > Bearer > 未ログイン/エラー）、失効検知とリフレッシュ発火、`StaticAuthProvider` の非更新。
-- **client**: リクエスト毎ヘッダ注入、401→refresh→1回リトライ、既存 429/5xx リトライ維持。
-- **auto-login**: 未ログイン検知時のフロー起動判定（対話/headless 分岐）、多重起動防止、非ブロッキング返却メッセージ。
+- **credentials**: 保存/読込ラウンドトリップ、`0600` 権限、パス解決（XDG/env）、アトミック書き込み、破損ファイル耐性、削除、**複数プロセスからの同時 refresh に対する排他制御（ファイルロック/世代比較）**。
+- **auth provider**: 解決優先順位（OAuth > Basic > Bearer > 未ログイン/エラー、保存トークンの `client_id` 不一致時は未ログイン分岐へフォールバック）、失効検知とリフレッシュ発火、`StaticAuthProvider` の非更新、`is_authenticated()`/`NotAuthenticatedError` の契約。
+- **client**: リクエスト毎ヘッダ注入、401→refresh→1回リトライ、既存 429/5xx リトライ維持、`NotAuthenticatedError` → `ToolError` への変換。
+- **auto-login**: 未ログイン検知時のフロー起動判定（対話/headless 分岐）、多重起動防止、非ブロッキング返却メッセージ、**タイムアウト・失敗・サーバ shutdown を含む全パスでのロック解放**。
 - **loopback ハンドラ**: `code`/`state` 付き callback の処理と `state` 検証。
 - **ライブ**: `auth login` はブラウザ対話のため手順書化。自動ライブテスト（`BITBUCKET_TEST_LIVE`）はトークン fallback で継続。
 
@@ -242,7 +251,7 @@
 
 ## 15. 未解決リスク / 実機検証項目
 
-1. **Bitbucket の loopback callback 実機挙動** — `http://localhost:PORT/callback` がコンシューマ callback として受理されるか要検証。不可なら固定 callback ページ運用 or `--manual` を主導線に切替。
+1. **Bitbucket の loopback callback 実機挙動** — `http://127.0.0.1:PORT/callback` がコンシューマ callback として受理されるか要検証。不可なら固定 callback ページ運用 or `--manual` を主導線に切替。
 2. **MCP クライアントのツール呼び出しタイムアウト** と非ブロッキング返却の相性（Claude Desktop 等）。
 3. **`webbrowser` の環境依存**（WSL/リモートデスクトップ/複数ディスプレイ）でのディスプレイ判定精度。
 4. **argparse subparser 化**による既存 CLI 起動の後方互換（`--transport` 等がサブコマンドなしで従来どおり効くか）。
