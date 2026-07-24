@@ -61,3 +61,57 @@ def test_toolsets_reject_unknown_names(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_base_url_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BITBUCKET_BASE_URL", "https://example.test/2.0")
     assert Settings().base_url == "https://example.test/2.0"
+
+
+def test_oauth_fields_default() -> None:
+    settings = Settings()
+    assert settings.oauth_client_id is None
+    assert settings.oauth_client_secret is None
+    assert settings.oauth_callback_port == 8976
+    assert settings.oauth_base_url == "https://bitbucket.org"
+    assert settings.config_dir is None
+
+
+def test_oauth_base_url_rejects_non_bitbucket_domain() -> None:
+    with pytest.raises(ValueError, match=r"bitbucket\.org"):
+        Settings(oauth_base_url="https://evil.example.com")
+
+
+def test_oauth_base_url_accepts_bitbucket_subdomain() -> None:
+    settings = Settings(oauth_base_url="https://api.bitbucket.org")
+    assert settings.oauth_base_url == "https://api.bitbucket.org"
+
+
+def test_oauth_scopes_read_only() -> None:
+    settings = Settings(
+        oauth_client_id="c",
+        toolsets="context",
+        read_only=True,
+    )
+    assert settings.oauth_scopes() == [
+        "account",
+        "repository",
+        "pullrequest",
+        "issue",
+        "pipeline",
+    ]
+
+
+def test_oauth_scopes_includes_write_when_write_toolset_enabled() -> None:
+    settings = Settings(
+        oauth_client_id="c",
+        toolsets="repos,pull_requests,issues,pipelines",
+        read_only=False,
+    )
+    scopes = settings.oauth_scopes()
+    assert "repository:write" in scopes
+    assert "pullrequest:write" in scopes
+    assert "issue:write" in scopes
+    assert "pipeline:write" in scopes
+
+
+def test_oauth_callback_port_validation() -> None:
+    with pytest.raises(ValueError):
+        Settings(oauth_callback_port=0)
+    with pytest.raises(ValueError):
+        Settings(oauth_callback_port=70000)
