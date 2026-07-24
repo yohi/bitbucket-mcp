@@ -261,13 +261,8 @@ class OAuthCallbackServer:
             return None
         return value[0]
 
-    async def wait_callback(self, timeout: float | None = None) -> tuple[str, str | None]:
-        try:
-            # Python 3.11+ では asyncio.timeout() を使用
-            async with asyncio.timeout(timeout):
-                await self._event.wait()
-        except TimeoutError as exc:
-            raise TimeoutError("OAuth callback timed out") from exc
+    async def wait_callback(self) -> tuple[str, str | None]:
+        await self._event.wait()
         if self._error:
             raise OAuthFlowError(f"OAuth callback error: {self._error}")
         if self._code is None:

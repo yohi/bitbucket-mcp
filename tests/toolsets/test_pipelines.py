@@ -7,9 +7,7 @@ from bitbucket_mcp.toolsets import pipelines
 BASE = "https://api.bitbucket.org/2.0"
 
 
-async def test_list_pipelines(
-    register_toolset, call_tool, httpx_mock: HTTPXMock
-) -> None:
+async def test_list_pipelines(register_toolset, call_tool, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(json={"values": []})
     mcp, _ = register_toolset(pipelines.register, default_workspace="ws1")
     await call_tool(mcp, "list_pipelines", {"repo_slug": "r", "sort": "-created_on"})
@@ -19,9 +17,7 @@ async def test_list_pipelines(
     assert request.url.params["sort"] == "-created_on"
 
 
-async def test_get_pipeline_steps(
-    register_toolset, call_tool, httpx_mock: HTTPXMock
-) -> None:
+async def test_get_pipeline_steps(register_toolset, call_tool, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(json={"values": []})
     mcp, _ = register_toolset(pipelines.register, default_workspace="ws1")
     await call_tool(
@@ -65,9 +61,7 @@ async def test_get_pipeline_step_log_requires_step_uuid(register_toolset, call_t
         )
 
 
-async def test_run_pipeline_body(
-    register_toolset, call_tool, httpx_mock: HTTPXMock
-) -> None:
+async def test_run_pipeline_body(register_toolset, call_tool, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(json={"uuid": "{u}"})
     mcp, _ = register_toolset(pipelines.register, default_workspace="ws1")
     await call_tool(
@@ -83,8 +77,7 @@ async def test_run_pipeline_body(
     assert request.method == "POST"
     assert request.url.path == "/2.0/repositories/ws1/r/pipelines/"
     assert request.read() == (
-        b'{"target":{"ref_type":"branch","ref_name":"main",'
-        b'"type":"pipeline_ref_target"}}'
+        b'{"target":{"ref_type":"branch","ref_name":"main","type":"pipeline_ref_target"}}'
     )
 
 
@@ -113,14 +106,10 @@ async def test_run_pipeline_body_includes_selector(
     )
 
 
-async def test_stop_pipeline_path(
-    register_toolset, call_tool, httpx_mock: HTTPXMock
-) -> None:
+async def test_stop_pipeline_path(register_toolset, call_tool, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(status_code=204)
     mcp, _ = register_toolset(pipelines.register, default_workspace="ws1")
-    await call_tool(
-        mcp, "stop_pipeline", {"repo_slug": "r", "pipeline_uuid": "{u}"}
-    )
+    await call_tool(mcp, "stop_pipeline", {"repo_slug": "r", "pipeline_uuid": "{u}"})
     request = httpx_mock.get_request()
     assert request is not None
     assert request.method == "POST"

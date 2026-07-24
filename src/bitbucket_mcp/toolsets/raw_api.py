@@ -25,14 +25,8 @@ def register(
     ) -> dict[str, Any]:
         """Call any Bitbucket REST endpoint (path relative to /2.0)."""
         if read_only and method.upper() not in ("GET", "HEAD"):
-            raise ToolError(
-                "BITBUCKET_READ_ONLY=true のため GET/HEAD のみ許可されています。"
-            )
+            raise ToolError("BITBUCKET_READ_ONLY=true のため GET/HEAD のみ許可されています。")
         normalized = path if path.startswith("/") else f"/{path}"
-        return await client.request(
-            method.upper(), normalized, query=query, body=body
-        )
+        return await client.request(method.upper(), normalized, query=query, body=body)
 
-    mcp.add_tool(
-        bitbucket_api, annotations=ToolAnnotations(openWorldHint=True)
-    )
+    mcp.add_tool(bitbucket_api, annotations=ToolAnnotations(openWorldHint=True))

@@ -172,20 +172,12 @@ def register(
         workspace: str | None = None,
         repo_slug: str,
         pull_request_id: int,
-        action: Literal[
-            "approve", "unapprove", "request_changes", "unrequest_changes"
-        ],
+        action: Literal["approve", "unapprove", "request_changes", "unrequest_changes"],
     ) -> dict[str, Any]:
         """Approve/unapprove or request/unrequest changes on a pull request."""
         ws = resolve_workspace(workspace, default_workspace)
-        base = (
-            f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}"
-        )
-        endpoint = (
-            "approve"
-            if action in ("approve", "unapprove")
-            else "request-changes"
-        )
+        base = f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}"
+        endpoint = "approve" if action in ("approve", "unapprove") else "request-changes"
         method = "POST" if action in ("approve", "request_changes") else "DELETE"
         return await client.request(method, f"{base}/{endpoint}")
 

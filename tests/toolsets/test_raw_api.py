@@ -30,17 +30,13 @@ async def test_bitbucket_api_normalizes_leading_slash(
 ) -> None:
     httpx_mock.add_response(json={})
     mcp, _ = register_toolset(raw_api.register)
-    await call_tool(
-        mcp, "bitbucket_api", {"method": "GET", "path": "/user"}
-    )
+    await call_tool(mcp, "bitbucket_api", {"method": "GET", "path": "/user"})
     request = httpx_mock.get_request()
     assert request is not None
     assert request.url.path == "/2.0/user"
 
 
-async def test_bitbucket_api_post_blocked_in_read_only(
-    register_toolset, call_tool
-) -> None:
+async def test_bitbucket_api_post_blocked_in_read_only(register_toolset, call_tool) -> None:
     mcp, _ = register_toolset(raw_api.register, read_only=True)
     with pytest.raises(ToolError, match="READ_ONLY"):
         await call_tool(

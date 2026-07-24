@@ -38,9 +38,7 @@ def register(
             query["q"] = q
         if sort:
             query["sort"] = sort
-        return await client.request(
-            "GET", f"/repositories/{ws}/{repo_slug}/issues", query=query
-        )
+        return await client.request("GET", f"/repositories/{ws}/{repo_slug}/issues", query=query)
 
     async def get_issue(
         *,
@@ -83,9 +81,7 @@ def register(
             body["priority"] = priority
         if assignee:
             body["assignee"] = {"account_id": assignee}
-        return await client.request(
-            "POST", f"/repositories/{ws}/{repo_slug}/issues", body=body
-        )
+        return await client.request("POST", f"/repositories/{ws}/{repo_slug}/issues", body=body)
 
     async def update_issue(
         *,
@@ -122,9 +118,7 @@ def register(
     ) -> dict[str, Any]:
         """Delete an issue. Destructive."""
         ws = resolve_workspace(workspace, default_workspace)
-        return await client.request(
-            "DELETE", f"/repositories/{ws}/{repo_slug}/issues/{issue_id}"
-        )
+        return await client.request("DELETE", f"/repositories/{ws}/{repo_slug}/issues/{issue_id}")
 
     async def add_issue_comment(
         *,

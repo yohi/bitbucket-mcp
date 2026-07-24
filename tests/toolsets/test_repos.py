@@ -24,9 +24,7 @@ def test_resolve_workspace_raises_when_both_none() -> None:
 async def test_get_repository_uses_default_workspace(
     register_toolset, call_tool, httpx_mock: HTTPXMock
 ) -> None:
-    httpx_mock.add_response(
-        url=f"{BASE}/repositories/ws1/repo1", json={"slug": "repo1"}
-    )
+    httpx_mock.add_response(url=f"{BASE}/repositories/ws1/repo1", json={"slug": "repo1"})
     mcp, _ = register_toolset(repos.register, default_workspace="ws1")
     _, structured = await call_tool(mcp, "get_repository", {"repo_slug": "repo1"})
     assert structured == {"slug": "repo1"}
@@ -49,9 +47,7 @@ async def test_list_repositories_builds_query(
     assert request.url.params["pagelen"] == "10"
 
 
-async def test_get_diff_text_wrapped(
-    register_toolset, call_tool, httpx_mock: HTTPXMock
-) -> None:
+async def test_get_diff_text_wrapped(register_toolset, call_tool, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(text="diff --git a b")
     mcp, _ = register_toolset(repos.register, default_workspace="ws1")
     _, structured = await call_tool(
@@ -63,9 +59,7 @@ async def test_get_diff_text_wrapped(
     assert structured == {"content": "diff --git a b", "format": "diff"}
 
 
-async def test_get_diff_diffstat_json(
-    register_toolset, call_tool, httpx_mock: HTTPXMock
-) -> None:
+async def test_get_diff_diffstat_json(register_toolset, call_tool, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(json={"values": [{"status": "modified"}]})
     mcp, _ = register_toolset(repos.register, default_workspace="ws1")
     _, structured = await call_tool(
@@ -92,9 +86,7 @@ async def test_repos_read_tools_registered(register_toolset) -> None:
     } <= names
 
 
-async def test_create_repository_body(
-    register_toolset, call_tool, httpx_mock: HTTPXMock
-) -> None:
+async def test_create_repository_body(register_toolset, call_tool, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(json={"slug": "r"})
     mcp, _ = register_toolset(repos.register, default_workspace="ws1")
     await call_tool(
@@ -106,14 +98,10 @@ async def test_create_repository_body(
     assert request is not None
     assert request.method == "POST"
     assert request.url.path == "/2.0/repositories/ws1/r"
-    assert request.read() == (
-        b'{"scm":"git","is_private":true,"project":{"key":"PRJ"}}'
-    )
+    assert request.read() == (b'{"scm":"git","is_private":true,"project":{"key":"PRJ"}}')
 
 
-async def test_create_commit_sends_form(
-    register_toolset, call_tool, httpx_mock: HTTPXMock
-) -> None:
+async def test_create_commit_sends_form(register_toolset, call_tool, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(json={})
     mcp, _ = register_toolset(repos.register, default_workspace="ws1")
     await call_tool(
@@ -130,18 +118,14 @@ async def test_create_commit_sends_form(
     assert request is not None
     assert request.method == "POST"
     assert request.url.path == "/2.0/repositories/ws1/r/src"
-    assert request.headers["Content-Type"].startswith(
-        "application/x-www-form-urlencoded"
-    )
+    assert request.headers["Content-Type"].startswith("application/x-www-form-urlencoded")
     body = request.read().decode()
     assert "message=msg" in body
     assert "branch=main" in body
     assert "a.txt=hello" in body
 
 
-async def test_create_commit_rejects_reserved_file_names(
-    register_toolset, call_tool
-) -> None:
+async def test_create_commit_rejects_reserved_file_names(register_toolset, call_tool) -> None:
     mcp, _ = register_toolset(repos.register, default_workspace="ws1")
     with pytest.raises(ToolError, match=r"message|branch"):
         await call_tool(
@@ -204,28 +188,20 @@ async def test_list_tags_supports_pagelen(
     assert request.url.params["pagelen"] == "10"
 
 
-async def test_delete_branch_path(
-    register_toolset, call_tool, httpx_mock: HTTPXMock
-) -> None:
+async def test_delete_branch_path(register_toolset, call_tool, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(status_code=204)
     mcp, _ = register_toolset(repos.register, default_workspace="ws1")
-    await call_tool(
-        mcp, "delete_branch", {"repo_slug": "r", "name": "feature/x"}
-    )
+    await call_tool(mcp, "delete_branch", {"repo_slug": "r", "name": "feature/x"})
     request = httpx_mock.get_request()
     assert request is not None
     assert request.method == "DELETE"
     assert request.url.path == "/2.0/repositories/ws1/r/refs/branches/feature/x"
 
 
-async def test_create_branch_body(
-    register_toolset, call_tool, httpx_mock: HTTPXMock
-) -> None:
+async def test_create_branch_body(register_toolset, call_tool, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(json={"name": "x"})
     mcp, _ = register_toolset(repos.register, default_workspace="ws1")
-    await call_tool(
-        mcp, "create_branch", {"repo_slug": "r", "name": "x", "target": "abc123"}
-    )
+    await call_tool(mcp, "create_branch", {"repo_slug": "r", "name": "x", "target": "abc123"})
     request = httpx_mock.get_request()
     assert request is not None
     assert request.read() == b'{"name":"x","target":{"hash":"abc123"}}'

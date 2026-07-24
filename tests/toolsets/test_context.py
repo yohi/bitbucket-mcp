@@ -8,9 +8,7 @@ BASE = "https://api.bitbucket.org/2.0"
 
 
 async def test_get_current_user(register_toolset, call_tool, httpx_mock: HTTPXMock) -> None:
-    httpx_mock.add_response(
-        url=f"{BASE}/user", json={"username": "alice", "account_id": "123"}
-    )
+    httpx_mock.add_response(url=f"{BASE}/user", json={"username": "alice", "account_id": "123"})
     mcp, _ = register_toolset(context.register)
     _, structured = await call_tool(mcp, "get_current_user", {})
     request = httpx_mock.get_request()
@@ -43,9 +41,7 @@ async def test_list_workspaces_administrator_filter(
     assert request.url.params["q"] == 'permission="owner"'
 
 
-async def test_list_workspaces_rejects_administrator_with_q(
-    register_toolset, call_tool
-) -> None:
+async def test_list_workspaces_rejects_administrator_with_q(register_toolset, call_tool) -> None:
     mcp, _ = register_toolset(context.register)
     with pytest.raises(ToolError, match=r"administrator|q"):
         await call_tool(mcp, "list_workspaces", {"administrator": True, "q": "foo"})

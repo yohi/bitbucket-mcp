@@ -42,9 +42,7 @@ def register(
             query["role"] = role
         return await client.request("GET", f"/repositories/{ws}", query=query)
 
-    async def get_repository(
-        *, workspace: str | None = None, repo_slug: str
-    ) -> dict[str, Any]:
+    async def get_repository(*, workspace: str | None = None, repo_slug: str) -> dict[str, Any]:
         """Get a single repository's metadata."""
         ws = resolve_workspace(workspace, default_workspace)
         return await client.request("GET", f"/repositories/{ws}/{repo_slug}")
@@ -93,9 +91,7 @@ def register(
     ) -> dict[str, Any]:
         """Get a single commit by hash."""
         ws = resolve_workspace(workspace, default_workspace)
-        return await client.request(
-            "GET", f"/repositories/{ws}/{repo_slug}/commit/{commit}"
-        )
+        return await client.request("GET", f"/repositories/{ws}/{repo_slug}/commit/{commit}")
 
     async def get_diff(
         *,
@@ -148,9 +144,7 @@ def register(
             query["q"] = q
         if sort:
             query["sort"] = sort
-        return await client.request(
-            "GET", f"/repositories/{ws}/{repo_slug}/refs/tags", query=query
-        )
+        return await client.request("GET", f"/repositories/{ws}/{repo_slug}/refs/tags", query=query)
 
     mcp.add_tool(list_repositories, annotations=_READ)
     mcp.add_tool(get_repository, annotations=_READ)
@@ -177,18 +171,12 @@ def register(
         body: dict[str, Any] = {"scm": scm, "is_private": is_private}
         if project_key:
             body["project"] = {"key": project_key}
-        return await client.request(
-            "POST", f"/repositories/{ws}/{repo_slug}", body=body
-        )
+        return await client.request("POST", f"/repositories/{ws}/{repo_slug}", body=body)
 
-    async def delete_repository(
-        *, workspace: str | None = None, repo_slug: str
-    ) -> dict[str, Any]:
+    async def delete_repository(*, workspace: str | None = None, repo_slug: str) -> dict[str, Any]:
         """Delete a repository. Destructive."""
         ws = resolve_workspace(workspace, default_workspace)
-        return await client.request(
-            "DELETE", f"/repositories/{ws}/{repo_slug}"
-        )
+        return await client.request("DELETE", f"/repositories/{ws}/{repo_slug}")
 
     async def fork_repository(
         *,
@@ -204,9 +192,7 @@ def register(
             body["name"] = name
         if target_workspace:
             body["workspace"] = {"slug": target_workspace}
-        return await client.request(
-            "POST", f"/repositories/{ws}/{repo_slug}/forks", body=body
-        )
+        return await client.request("POST", f"/repositories/{ws}/{repo_slug}/forks", body=body)
 
     async def create_commit(
         *,
@@ -228,9 +214,7 @@ def register(
             form["branch"] = branch
         for file_path, content in files.items():
             form[file_path] = content
-        return await client.request(
-            "POST", f"/repositories/{ws}/{repo_slug}/src", form=form
-        )
+        return await client.request("POST", f"/repositories/{ws}/{repo_slug}/src", form=form)
 
     async def create_branch(
         *, workspace: str | None = None, repo_slug: str, name: str, target: str

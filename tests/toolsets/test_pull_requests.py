@@ -10,18 +10,14 @@ async def test_list_pull_requests_state_query(
 ) -> None:
     httpx_mock.add_response(json={"values": []})
     mcp, _ = register_toolset(pull_requests.register, default_workspace="ws1")
-    await call_tool(
-        mcp, "list_pull_requests", {"repo_slug": "r", "state": "OPEN"}
-    )
+    await call_tool(mcp, "list_pull_requests", {"repo_slug": "r", "state": "OPEN"})
     request = httpx_mock.get_request()
     assert request is not None
     assert request.url.path == "/2.0/repositories/ws1/r/pullrequests"
     assert request.url.params["state"] == "OPEN"
 
 
-async def test_get_pull_request_details(
-    register_toolset, call_tool, httpx_mock: HTTPXMock
-) -> None:
+async def test_get_pull_request_details(register_toolset, call_tool, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(json={"id": 7, "title": "t"})
     mcp, _ = register_toolset(pull_requests.register, default_workspace="ws1")
     _, structured = await call_tool(
@@ -67,9 +63,7 @@ async def test_get_pull_request_diffstat_json(
     assert structured == {"values": []}
 
 
-async def test_create_pull_request_body(
-    register_toolset, call_tool, httpx_mock: HTTPXMock
-) -> None:
+async def test_create_pull_request_body(register_toolset, call_tool, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(json={"id": 1})
     mcp, _ = register_toolset(pull_requests.register, default_workspace="ws1")
     await call_tool(
@@ -129,9 +123,7 @@ async def test_update_pull_request_path_and_body(
     assert request is not None
     assert request.method == "PUT"
     assert request.url.path == "/2.0/repositories/ws1/r/pullrequests/7"
-    assert request.read() == (
-        b'{"title":"new title","destination":{"branch":{"name":"main"}}}'
-    )
+    assert request.read() == (b'{"title":"new title","destination":{"branch":{"name":"main"}}}')
 
 
 async def test_decline_pull_request_path(
@@ -139,9 +131,7 @@ async def test_decline_pull_request_path(
 ) -> None:
     httpx_mock.add_response(json={"state": "DECLINED"})
     mcp, _ = register_toolset(pull_requests.register, default_workspace="ws1")
-    await call_tool(
-        mcp, "decline_pull_request", {"repo_slug": "r", "pull_request_id": 7}
-    )
+    await call_tool(mcp, "decline_pull_request", {"repo_slug": "r", "pull_request_id": 7})
     request = httpx_mock.get_request()
     assert request is not None
     assert request.method == "POST"
@@ -177,9 +167,7 @@ async def test_review_pull_request_unapprove_delete(
     request = httpx_mock.get_request()
     assert request is not None
     assert request.method == "DELETE"
-    assert request.url.path == (
-        "/2.0/repositories/ws1/r/pullrequests/7/request-changes"
-    )
+    assert request.url.path == ("/2.0/repositories/ws1/r/pullrequests/7/request-changes")
 
 
 async def test_add_pull_request_comment_inline(
@@ -200,9 +188,7 @@ async def test_add_pull_request_comment_inline(
     request = httpx_mock.get_request()
     assert request is not None
     assert request.url.path == "/2.0/repositories/ws1/r/pullrequests/7/comments"
-    assert request.read() == (
-        b'{"content":{"raw":"nice"},"inline":{"path":"a.py","to":10}}'
-    )
+    assert request.read() == (b'{"content":{"raw":"nice"},"inline":{"path":"a.py","to":10}}')
 
 
 async def test_pull_request_write_tools_absent_in_read_only(register_toolset) -> None:

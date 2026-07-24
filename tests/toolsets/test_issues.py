@@ -22,17 +22,13 @@ async def test_get_issue_changes_subpath(
 ) -> None:
     httpx_mock.add_response(json={"values": []})
     mcp, _ = register_toolset(issues.register, default_workspace="ws1")
-    await call_tool(
-        mcp, "get_issue", {"repo_slug": "r", "issue_id": 3, "action": "changes"}
-    )
+    await call_tool(mcp, "get_issue", {"repo_slug": "r", "issue_id": 3, "action": "changes"})
     request = httpx_mock.get_request()
     assert request is not None
     assert request.url.path == "/2.0/repositories/ws1/r/issues/3/changes"
 
 
-async def test_create_issue_body(
-    register_toolset, call_tool, httpx_mock: HTTPXMock
-) -> None:
+async def test_create_issue_body(register_toolset, call_tool, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(json={"id": 1})
     mcp, _ = register_toolset(issues.register, default_workspace="ws1")
     await call_tool(
@@ -44,9 +40,7 @@ async def test_create_issue_body(
     assert request is not None
     assert request.method == "POST"
     assert request.url.path == "/2.0/repositories/ws1/r/issues"
-    assert request.read() == (
-        b'{"title":"Bug","content":{"raw":"desc"},"kind":"bug"}'
-    )
+    assert request.read() == (b'{"title":"Bug","content":{"raw":"desc"},"kind":"bug"}')
 
 
 async def test_create_issue_includes_assignee(
@@ -64,9 +58,7 @@ async def test_create_issue_includes_assignee(
     assert request.read() == b'{"title":"Bug","assignee":{"account_id":"acct-1"}}'
 
 
-async def test_add_issue_comment_body(
-    register_toolset, call_tool, httpx_mock: HTTPXMock
-) -> None:
+async def test_add_issue_comment_body(register_toolset, call_tool, httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(json={"id": 9})
     mcp, _ = register_toolset(issues.register, default_workspace="ws1")
     await call_tool(
@@ -100,9 +92,7 @@ async def test_update_issue_body_and_assignee(
     assert request is not None
     assert request.method == "PUT"
     assert request.url.path == "/2.0/repositories/ws1/r/issues/3"
-    assert request.read() == (
-        b'{"title":"New","state":"open","assignee":{"account_id":"acct-1"}}'
-    )
+    assert request.read() == (b'{"title":"New","state":"open","assignee":{"account_id":"acct-1"}}')
 
 
 async def test_update_issue_rejects_empty_body(register_toolset, call_tool) -> None:

@@ -62,9 +62,7 @@ def register(
             )
         if step_uuid is None:
             raise ToolError("action='step_log' には step_uuid が必要です。")
-        text = await client.request_text(
-            "GET", f"{base}/steps/{step_uuid}/log"
-        )
+        text = await client.request_text("GET", f"{base}/steps/{step_uuid}/log")
         return {"content": text}
 
     mcp.add_tool(list_pipelines, annotations=_READ)
@@ -92,9 +90,7 @@ def register(
         body: dict[str, Any] = {"target": target_body}
         if variables:
             body["variables"] = variables
-        return await client.request(
-            "POST", f"/repositories/{ws}/{repo_slug}/pipelines/", body=body
-        )
+        return await client.request("POST", f"/repositories/{ws}/{repo_slug}/pipelines/", body=body)
 
     async def stop_pipeline(
         *, workspace: str | None = None, repo_slug: str, pipeline_uuid: str

@@ -15,9 +15,7 @@ def test_message_includes_status_and_message() -> None:
 
 
 def test_message_includes_detail() -> None:
-    err = build_tool_error(
-        400, {"error": {"message": "Bad", "detail": "field x required"}}
-    )
+    err = build_tool_error(400, {"error": {"message": "Bad", "detail": "field x required"}})
     assert "field x required" in str(err)
 
 
