@@ -12,7 +12,11 @@ from bitbucket_mcp.client import BitbucketClient
 from bitbucket_mcp.credentials import CredentialStore
 from bitbucket_mcp.oauth import OAuthClient
 from bitbucket_mcp.pagination import page_params
-from bitbucket_mcp.toolsets._common import AutoLoginController, require_auth, resolve_workspace
+from bitbucket_mcp.toolsets._common import (
+    AutoLoginController,
+    resolve_workspace,
+    wrap_tool,
+)
 
 if TYPE_CHECKING:
     from bitbucket_mcp.auth import AuthProvider
@@ -33,17 +37,7 @@ def register(
     store: CredentialStore | None = None,
     controller: AutoLoginController | None = None,
 ) -> None:
-    from bitbucket_mcp.auth import StaticAuthProvider
-
-    controller = controller or AutoLoginController()
-
-    def _wrap(fn: Any) -> Any:
-        return require_auth(
-            auth_provider or StaticAuthProvider("Bearer test-token"),
-            controller,
-            oauth_client,
-            store,
-        )(fn)
+    _wrap = wrap_tool(auth_provider, oauth_client, store, controller)
 
     async def list_issues(
         *,

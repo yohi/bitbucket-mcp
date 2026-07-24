@@ -147,3 +147,21 @@ def require_auth(
         return wrapper
 
     return decorator
+
+
+def wrap_tool(
+    auth_provider: AuthProvider | None,
+    oauth_client: OAuthClient | None,
+    store: CredentialStore | None,
+    controller: AutoLoginController | None = None,
+) -> Callable[[Callable[..., Awaitable[T] | T]], Callable[..., Awaitable[str | T]]]:
+    """toolset 共通の認証ラッパーを生成する。"""
+    from bitbucket_mcp.auth import StaticAuthProvider
+
+    resolved_controller = controller or AutoLoginController()
+    return require_auth(
+        auth_provider or StaticAuthProvider("Bearer test-token"),
+        resolved_controller,
+        oauth_client,
+        store,
+    )
