@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 from mcp.server.fastmcp import FastMCP
 
+from bitbucket_mcp.auth import StaticAuthProvider
 from bitbucket_mcp.client import BitbucketClient
 
 RegisterFn = Callable[..., None]
@@ -39,13 +40,11 @@ async def register_toolset() -> Any:
     ) -> tuple[FastMCP, BitbucketClient]:
         client = BitbucketClient(
             base_url="https://api.bitbucket.org/2.0",
-            auth_header="Bearer test-token",
+            auth_provider=StaticAuthProvider("Bearer test-token"),
             backoff_base=0.0,
         )
         mcp = FastMCP("bitbucket-mcp-test")
-        register_fn(
-            mcp, client, read_only=read_only, default_workspace=default_workspace
-        )
+        register_fn(mcp, client, read_only=read_only, default_workspace=default_workspace)
         clients.append(client)
         return mcp, client
 
@@ -56,9 +55,7 @@ async def register_toolset() -> Any:
 
 @pytest.fixture
 def call_tool() -> CallTool:
-    async def _call(
-        mcp: FastMCP, name: str, arguments: dict[str, Any]
-    ) -> tuple[Any, Any]:
+    async def _call(mcp: FastMCP, name: str, arguments: dict[str, Any]) -> tuple[Any, Any]:
         result = await mcp.call_tool(name, arguments)
         if isinstance(result, tuple):
             content, structured = result

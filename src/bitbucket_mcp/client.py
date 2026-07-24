@@ -1,12 +1,16 @@
 """Bitbucket API への HTTP アクセスを担う httpx ラッパ。"""
 
 from types import TracebackType
-from typing import Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import anyio
 import httpx
+from mcp.server.fastmcp.exceptions import ToolError
 
 from bitbucket_mcp.errors import build_tool_error
+
+if TYPE_CHECKING:
+    from bitbucket_mcp.auth import AuthProvider
 
 _RETRY_STATUSES = {429, 502, 503, 504}
 _RETRYABLE_METHODS = {"GET", "HEAD"}
@@ -19,18 +23,29 @@ class BitbucketClient:
         self,
         *,
         base_url: str,
-        auth_header: str,
+        auth_provider: AuthProvider,
         timeout: float = 30.0,
         max_retries: int = 2,
         backoff_base: float = 0.5,
     ) -> None:
         self._client = httpx.AsyncClient(
             base_url=base_url,
-            headers={"Authorization": auth_header, "Accept": "application/json"},
+            headers={"Accept": "application/json"},
             timeout=timeout,
         )
+        self._auth_provider = auth_provider
         self._max_retries = max_retries
         self._backoff_base = backoff_base
+
+    async def _authorization_header(self) -> str:
+        from bitbucket_mcp.auth import NotAuthenticatedError
+
+        try:
+            return await self._auth_provider.authorization_header()
+        except NotAuthenticatedError as exc:
+            raise ToolError(
+                f"認証が必要です。再ログインしてください。Run auth login. ({exc})"
+            ) from exc
 
     async def _send(
         self,
@@ -42,21 +57,39 @@ class BitbucketClient:
         data: dict[str, Any] | None = None,
     ) -> httpx.Response:
         attempt = 0
+        refreshed = False
         method_upper = method.upper()
+        headers = {"Authorization": await self._authorization_header()}
         while True:
             try:
                 response = await self._client.request(
-                    method, path, params=query, json=json, data=data
+                    method,
+                    path,
+                    params=query,
+                    json=json,
+                    data=data,
+                    headers=headers,
                 )
             except httpx.RequestError:
-                if (
-                    method_upper in _RETRYABLE_METHODS
-                    and attempt < self._max_retries
-                ):
+                if method_upper in _RETRYABLE_METHODS and attempt < self._max_retries:
                     await anyio.sleep(self._backoff_base * (2**attempt))
                     attempt += 1
                     continue
                 raise
+            if response.status_code == 401 and not refreshed:
+                from bitbucket_mcp.auth import NotAuthenticatedError
+
+                try:
+                    await self._auth_provider.refresh()
+                    headers = {"Authorization": await self._authorization_header()}
+                except NotAuthenticatedError as exc:
+                    raise ToolError(
+                        f"認証の更新に失敗しました。再ログインしてください。Run auth login. ({exc})"
+                    ) from exc
+                refreshed = True
+                continue
+            if response.status_code == 401:
+                raise ToolError("認証に失敗しました。再ログインしてください。Run auth login.")
             if (
                 response.status_code in _RETRY_STATUSES
                 and method_upper in _RETRYABLE_METHODS
