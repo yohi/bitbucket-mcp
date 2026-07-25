@@ -12,12 +12,12 @@ from bitbucket_mcp.oauth import OAuthClient
 from bitbucket_mcp.toolsets._common import (
     READ,
     AutoLoginController,
+    RegisterContext,
     wrap_tool,
 )
 
 if TYPE_CHECKING:
     from bitbucket_mcp.auth import AuthProvider
-
 
 def register(
     mcp: FastMCP,
@@ -30,13 +30,16 @@ def register(
     store: CredentialStore | None = None,
     controller: AutoLoginController | None = None,
 ) -> None:
-    _wrap = wrap_tool(auth_provider, oauth_client, store, controller)
+    ctx = RegisterContext(
+        mcp,
+        client,
+        read_only=read_only,
+        default_workspace=default_workspace,
+        wrap=wrap_tool(auth_provider, oauth_client, store, controller),
+    )
 
     async def get_user(*, selected_user: str) -> dict[str, Any]:
         """Get a user's public profile by account_id or UUID."""
         return await client.request("GET", f"/users/{selected_user}")
 
-    mcp.add_tool(
-        _wrap(get_user),
-        annotations=READ,
-    )
+    ctx.tool(get_user, READ)

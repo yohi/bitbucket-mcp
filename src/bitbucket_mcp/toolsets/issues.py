@@ -10,19 +10,18 @@ from mcp.server.fastmcp.exceptions import ToolError
 from bitbucket_mcp.client import BitbucketClient
 from bitbucket_mcp.credentials import CredentialStore
 from bitbucket_mcp.oauth import OAuthClient
-from bitbucket_mcp.pagination import page_params
 from bitbucket_mcp.toolsets._common import (
     DESTRUCTIVE,
     READ,
     WRITE,
     AutoLoginController,
-    resolve_workspace,
+    RegisterContext,
+    build_query,
     wrap_tool,
 )
 
 if TYPE_CHECKING:
     from bitbucket_mcp.auth import AuthProvider
-
 
 
 def register(
@@ -36,7 +35,13 @@ def register(
     store: CredentialStore | None = None,
     controller: AutoLoginController | None = None,
 ) -> None:
-    _wrap = wrap_tool(auth_provider, oauth_client, store, controller)
+    ctx = RegisterContext(
+        mcp,
+        client,
+        read_only=read_only,
+        default_workspace=default_workspace,
+        wrap=wrap_tool(auth_provider, oauth_client, store, controller),
+    )
 
     async def list_issues(
         *,
@@ -48,12 +53,8 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List issues in a repository."""
-        ws = resolve_workspace(workspace, default_workspace)
-        query: dict[str, Any] = page_params(page, pagelen)
-        if q:
-            query["q"] = q
-        if sort:
-            query["sort"] = sort
+        ws = ctx.resolve_workspace(workspace)
+        query = build_query(page, pagelen, q=q, sort=sort)
         return await client.request("GET", f"/repositories/{ws}/{repo_slug}/issues", query=query)
 
     async def get_issue(
@@ -64,14 +65,14 @@ def register(
         action: Literal["details", "comments", "changes"] = "details",
     ) -> dict[str, Any]:
         """Get an issue or its comments/changes."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         base = f"/repositories/{ws}/{repo_slug}/issues/{issue_id}"
         if action == "details":
             return await client.request("GET", base)
         return await client.request("GET", f"{base}/{action}")
 
-    mcp.add_tool(_wrap(list_issues), annotations=READ)
-    mcp.add_tool(_wrap(get_issue), annotations=READ)
+    ctx.tool(list_issues, READ)
+    ctx.tool(get_issue, READ)
 
     if read_only:
         return
@@ -87,7 +88,7 @@ def register(
         assignee: str | None = None,
     ) -> dict[str, Any]:
         """Create an issue."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         body: dict[str, Any] = {"title": title}
         if content:
             body["content"] = {"raw": content}
@@ -111,7 +112,7 @@ def register(
         assignee: str | None = None,
     ) -> dict[str, Any]:
         """Update an issue."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         body: dict[str, Any] = {}
         if title is not None:
             body["title"] = title
@@ -133,7 +134,7 @@ def register(
         *, workspace: str | None = None, repo_slug: str, issue_id: int
     ) -> dict[str, Any]:
         """Delete an issue. Destructive."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         return await client.request("DELETE", f"/repositories/{ws}/{repo_slug}/issues/{issue_id}")
 
     async def add_issue_comment(
@@ -144,14 +145,14 @@ def register(
         content: str,
     ) -> dict[str, Any]:
         """Add a comment to an issue."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         return await client.request(
             "POST",
             f"/repositories/{ws}/{repo_slug}/issues/{issue_id}/comments",
             body={"content": {"raw": content}},
         )
 
-    mcp.add_tool(_wrap(create_issue), annotations=WRITE)
-    mcp.add_tool(_wrap(update_issue), annotations=WRITE)
-    mcp.add_tool(_wrap(delete_issue), annotations=DESTRUCTIVE)
-    mcp.add_tool(_wrap(add_issue_comment), annotations=WRITE)
+    ctx.tool(create_issue, WRITE)
+    ctx.tool(update_issue, WRITE)
+    ctx.tool(delete_issue, DESTRUCTIVE)
+    ctx.tool(add_issue_comment, WRITE)

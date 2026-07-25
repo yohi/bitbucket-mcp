@@ -10,13 +10,13 @@ from bitbucket_mcp.client import BitbucketClient
 from bitbucket_mcp.credentials import CredentialStore
 from bitbucket_mcp.models import InlineComment
 from bitbucket_mcp.oauth import OAuthClient
-from bitbucket_mcp.pagination import page_params
 from bitbucket_mcp.toolsets._common import (
     DESTRUCTIVE,
     READ,
     WRITE,
     AutoLoginController,
-    resolve_workspace,
+    RegisterContext,
+    build_query,
     wrap_tool,
 )
 
@@ -36,7 +36,13 @@ def register(
     store: CredentialStore | None = None,
     controller: AutoLoginController | None = None,
 ) -> None:
-    _wrap = wrap_tool(auth_provider, oauth_client, store, controller)
+    ctx = RegisterContext(
+        mcp,
+        client,
+        read_only=read_only,
+        default_workspace=default_workspace,
+        wrap=wrap_tool(auth_provider, oauth_client, store, controller),
+    )
 
     async def list_pull_requests(
         *,
@@ -49,14 +55,8 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List pull requests, optionally filtered by state."""
-        ws = resolve_workspace(workspace, default_workspace)
-        query: dict[str, Any] = page_params(page, pagelen)
-        if state:
-            query["state"] = state
-        if q:
-            query["q"] = q
-        if sort:
-            query["sort"] = sort
+        ws = ctx.resolve_workspace(workspace)
+        query = build_query(page, pagelen, state=state, q=q, sort=sort)
         return await client.request(
             "GET", f"/repositories/{ws}/{repo_slug}/pullrequests", query=query
         )
@@ -78,7 +78,7 @@ def register(
         ] = "details",
     ) -> dict[str, Any]:
         """Get a pull request or one of its sub-resources."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         base = f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}"
         if action == "details":
             return await client.request("GET", base)
@@ -87,8 +87,8 @@ def register(
             return {"content": text, "format": action}
         return await client.request("GET", f"{base}/{action}")
 
-    mcp.add_tool(_wrap(list_pull_requests), annotations=READ)
-    mcp.add_tool(_wrap(get_pull_request), annotations=READ)
+    ctx.tool(list_pull_requests, READ)
+    ctx.tool(get_pull_request, READ)
 
     if read_only:
         return
@@ -105,7 +105,7 @@ def register(
         close_source_branch: bool | None = None,
     ) -> dict[str, Any]:
         """Create a pull request."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         body: dict[str, Any] = {
             "title": title,
             "source": {"branch": {"name": source_branch}},
@@ -132,7 +132,7 @@ def register(
         destination_branch: str | None = None,
     ) -> dict[str, Any]:
         """Update a pull request's title, description, or destination."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         body: dict[str, Any] = {}
         if title is not None:
             body["title"] = title
@@ -156,7 +156,7 @@ def register(
         close_source_branch: bool | None = None,
     ) -> dict[str, Any]:
         """Merge a pull request. Destructive."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         body: dict[str, Any] = {}
         if merge_strategy:
             body["merge_strategy"] = merge_strategy
@@ -177,7 +177,7 @@ def register(
         pull_request_id: int,
     ) -> dict[str, Any]:
         """Decline a pull request."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         return await client.request(
             "POST",
             f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}/decline",
@@ -191,7 +191,7 @@ def register(
         action: Literal["approve", "unapprove", "request_changes", "unrequest_changes"],
     ) -> dict[str, Any]:
         """Approve/unapprove or request/unrequest changes on a pull request."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         base = f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}"
         endpoint = "approve" if action in ("approve", "unapprove") else "request-changes"
         method = "POST" if action in ("approve", "request_changes") else "DELETE"
@@ -206,7 +206,7 @@ def register(
         inline: InlineComment | None = None,
     ) -> dict[str, Any]:
         """Add a comment (optionally inline) to a pull request."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         body: dict[str, Any] = {"content": {"raw": content}}
         if inline is not None:
             body["inline"] = {"path": inline.path, "to": inline.to}
@@ -216,9 +216,9 @@ def register(
             body=body,
         )
 
-    mcp.add_tool(_wrap(create_pull_request), annotations=WRITE)
-    mcp.add_tool(_wrap(update_pull_request), annotations=WRITE)
-    mcp.add_tool(_wrap(merge_pull_request), annotations=DESTRUCTIVE)
-    mcp.add_tool(_wrap(decline_pull_request), annotations=WRITE)
-    mcp.add_tool(_wrap(review_pull_request), annotations=WRITE)
-    mcp.add_tool(_wrap(add_pull_request_comment), annotations=WRITE)
+    ctx.tool(create_pull_request, WRITE)
+    ctx.tool(update_pull_request, WRITE)
+    ctx.tool(merge_pull_request, DESTRUCTIVE)
+    ctx.tool(decline_pull_request, WRITE)
+    ctx.tool(review_pull_request, WRITE)
+    ctx.tool(add_pull_request_comment, WRITE)

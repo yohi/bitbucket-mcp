@@ -13,12 +13,12 @@ from bitbucket_mcp.oauth import OAuthClient
 from bitbucket_mcp.toolsets._common import (
     WRITE,
     AutoLoginController,
+    RegisterContext,
     wrap_tool,
 )
 
 if TYPE_CHECKING:
     from bitbucket_mcp.auth import AuthProvider
-
 
 def register(
     mcp: FastMCP,
@@ -31,7 +31,13 @@ def register(
     store: CredentialStore | None = None,
     controller: AutoLoginController | None = None,
 ) -> None:
-    _wrap = wrap_tool(auth_provider, oauth_client, store, controller)
+    ctx = RegisterContext(
+        mcp,
+        client,
+        read_only=read_only,
+        default_workspace=default_workspace,
+        wrap=wrap_tool(auth_provider, oauth_client, store, controller),
+    )
 
     async def bitbucket_api(
         *,
@@ -46,4 +52,4 @@ def register(
         normalized = path if path.startswith("/") else f"/{path}"
         return await client.request(method.upper(), normalized, query=query, body=body)
 
-    mcp.add_tool(_wrap(bitbucket_api), annotations=WRITE)
+    ctx.tool(bitbucket_api, WRITE)

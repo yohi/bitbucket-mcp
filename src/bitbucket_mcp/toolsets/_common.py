@@ -169,3 +169,50 @@ def wrap_tool(
 READ = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
 WRITE = ToolAnnotations(openWorldHint=True)
 DESTRUCTIVE = ToolAnnotations(destructiveHint=True, openWorldHint=True)
+
+
+def build_query(
+    page: int | None = None,
+    pagelen: int | None = None,
+    **filters: str | None,
+) -> dict[str, Any]:
+    """一覧系エンドポイント向けのクエリパラメータを組み立てる。"""
+    from bitbucket_mcp.pagination import page_params
+
+    query: dict[str, Any] = page_params(page, pagelen)
+    for key, value in filters.items():
+        if value:
+            query[key] = value
+    return query
+
+
+class RegisterContext:
+    """toolset 登録の共通コンテキスト。"""
+
+    def __init__(
+        self,
+        mcp: Any,
+        client: Any,
+        *,
+        read_only: bool,
+        default_workspace: str | None = None,
+        wrap: Callable[..., Any] | None = None,
+    ) -> None:
+        self.mcp = mcp
+        self.client = client
+        self.read_only = read_only
+        self.default_workspace = default_workspace
+        self._wrap = wrap
+
+    def resolve_workspace(self, workspace: str | None) -> str:
+        """workspace を解決する。"""
+        return resolve_workspace(workspace, self.default_workspace)
+
+    def tool(
+        self,
+        fn: Callable[..., Awaitable[Any]],
+        annotations: ToolAnnotations,
+    ) -> None:
+        """ツールを登録する。"""
+        wrapped = self._wrap(fn) if self._wrap else fn
+        self.mcp.add_tool(wrapped, annotations=annotations)

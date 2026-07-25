@@ -10,10 +10,11 @@ from mcp.server.fastmcp.exceptions import ToolError
 from bitbucket_mcp.client import BitbucketClient
 from bitbucket_mcp.credentials import CredentialStore
 from bitbucket_mcp.oauth import OAuthClient
-from bitbucket_mcp.pagination import page_params
 from bitbucket_mcp.toolsets._common import (
     READ,
     AutoLoginController,
+    RegisterContext,
+    build_query,
     wrap_tool,
 )
 
@@ -32,7 +33,13 @@ def register(
     store: CredentialStore | None = None,
     controller: AutoLoginController | None = None,
 ) -> None:
-    _wrap = wrap_tool(auth_provider, oauth_client, store, controller)
+    ctx = RegisterContext(
+        mcp,
+        client,
+        read_only=read_only,
+        default_workspace=default_workspace,
+        wrap=wrap_tool(auth_provider, oauth_client, store, controller),
+    )
 
     async def get_current_user() -> dict[str, Any]:
         """Return the currently authenticated Bitbucket user account."""
@@ -47,23 +54,13 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List workspaces the authenticated user is a member of."""
-        query: dict[str, Any] = page_params(page, pagelen)
         effective_q = q
         if administrator and effective_q:
             raise ToolError("administrator と q は同時指定できません。")
         if administrator:
             effective_q = 'permission="owner"'
-        if effective_q:
-            query["q"] = effective_q
-        if sort:
-            query["sort"] = sort
+        query = build_query(page, pagelen, q=effective_q, sort=sort)
         return await client.request("GET", "/user/workspaces", query=query)
 
-    mcp.add_tool(
-        _wrap(get_current_user),
-        annotations=READ,
-    )
-    mcp.add_tool(
-        _wrap(list_workspaces),
-        annotations=READ,
-    )
+    ctx.tool(get_current_user, READ)
+    ctx.tool(list_workspaces, READ)

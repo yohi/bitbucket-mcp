@@ -10,13 +10,13 @@ from mcp.server.fastmcp.exceptions import ToolError
 from bitbucket_mcp.client import BitbucketClient
 from bitbucket_mcp.credentials import CredentialStore
 from bitbucket_mcp.oauth import OAuthClient
-from bitbucket_mcp.pagination import page_params
 from bitbucket_mcp.toolsets._common import (
     DESTRUCTIVE,
     READ,
     WRITE,
     AutoLoginController,
-    resolve_workspace,
+    RegisterContext,
+    build_query,
     wrap_tool,
 )
 
@@ -36,7 +36,13 @@ def register(
     store: CredentialStore | None = None,
     controller: AutoLoginController | None = None,
 ) -> None:
-    _wrap = wrap_tool(auth_provider, oauth_client, store, controller)
+    ctx = RegisterContext(
+        mcp,
+        client,
+        read_only=read_only,
+        default_workspace=default_workspace,
+        wrap=wrap_tool(auth_provider, oauth_client, store, controller),
+    )
 
     async def list_repositories(
         *,
@@ -48,19 +54,13 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List repositories in a workspace."""
-        ws = resolve_workspace(workspace, default_workspace)
-        query: dict[str, Any] = page_params(page, pagelen)
-        if q:
-            query["q"] = q
-        if sort:
-            query["sort"] = sort
-        if role:
-            query["role"] = role
+        ws = ctx.resolve_workspace(workspace)
+        query = build_query(page, pagelen, q=q, sort=sort, role=role)
         return await client.request("GET", f"/repositories/{ws}", query=query)
 
     async def get_repository(*, workspace: str | None = None, repo_slug: str) -> dict[str, Any]:
         """Get a single repository's metadata."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         return await client.request("GET", f"/repositories/{ws}/{repo_slug}")
 
     async def get_file_or_directory(
@@ -72,14 +72,12 @@ def register(
         page: int | None = None,
     ) -> dict[str, Any]:
         """Get file contents or a directory listing at a commit."""
-        ws = resolve_workspace(workspace, default_workspace)
-        query: dict[str, Any] = {}
-        if page is not None:
-            query["page"] = page
+        ws = ctx.resolve_workspace(workspace)
+        query = build_query(page)
         text = await client.request_text(
             "GET",
             f"/repositories/{ws}/{repo_slug}/src/{commit}/{path}",
-            query=query or None,
+            query=query,
         )
         return {"content": text}
 
@@ -93,20 +91,18 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List commits, optionally scoped to a revision or path."""
-        ws = resolve_workspace(workspace, default_workspace)
-        query: dict[str, Any] = page_params(page, pagelen)
-        if path:
-            query["path"] = path
+        ws = ctx.resolve_workspace(workspace)
+        query = build_query(page, pagelen, path=path)
         endpoint = f"/repositories/{ws}/{repo_slug}/commits"
         if revision:
             endpoint = f"{endpoint}/{revision}"
-        return await client.request("GET", endpoint, query=query or None)
+        return await client.request("GET", endpoint, query=query)
 
     async def get_commit(
         *, workspace: str | None = None, repo_slug: str, commit: str
     ) -> dict[str, Any]:
         """Get a single commit by hash."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         return await client.request("GET", f"/repositories/{ws}/{repo_slug}/commit/{commit}")
 
     async def get_diff(
@@ -117,7 +113,7 @@ def register(
         action: Literal["diff", "diffstat", "patch"] = "diff",
     ) -> dict[str, Any]:
         """Get a diff, diffstat, or patch for a commit spec (e.g. 'a..b')."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         base = f"/repositories/{ws}/{repo_slug}"
         if action == "diffstat":
             return await client.request("GET", f"{base}/diffstat/{spec}")
@@ -134,12 +130,8 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List branches in a repository."""
-        ws = resolve_workspace(workspace, default_workspace)
-        query: dict[str, Any] = page_params(page, pagelen)
-        if q:
-            query["q"] = q
-        if sort:
-            query["sort"] = sort
+        ws = ctx.resolve_workspace(workspace)
+        query = build_query(page, pagelen, q=q, sort=sort)
         return await client.request(
             "GET", f"/repositories/{ws}/{repo_slug}/refs/branches", query=query
         )
@@ -154,22 +146,18 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List tags in a repository."""
-        ws = resolve_workspace(workspace, default_workspace)
-        query: dict[str, Any] = page_params(page, pagelen)
-        if q:
-            query["q"] = q
-        if sort:
-            query["sort"] = sort
+        ws = ctx.resolve_workspace(workspace)
+        query = build_query(page, pagelen, q=q, sort=sort)
         return await client.request("GET", f"/repositories/{ws}/{repo_slug}/refs/tags", query=query)
 
-    mcp.add_tool(_wrap(list_repositories), annotations=READ)
-    mcp.add_tool(_wrap(get_repository), annotations=READ)
-    mcp.add_tool(_wrap(get_file_or_directory), annotations=READ)
-    mcp.add_tool(_wrap(list_commits), annotations=READ)
-    mcp.add_tool(_wrap(get_commit), annotations=READ)
-    mcp.add_tool(_wrap(get_diff), annotations=READ)
-    mcp.add_tool(_wrap(list_branches), annotations=READ)
-    mcp.add_tool(_wrap(list_tags), annotations=READ)
+    ctx.tool(list_repositories, READ)
+    ctx.tool(get_repository, READ)
+    ctx.tool(get_file_or_directory, READ)
+    ctx.tool(list_commits, READ)
+    ctx.tool(get_commit, READ)
+    ctx.tool(get_diff, READ)
+    ctx.tool(list_branches, READ)
+    ctx.tool(list_tags, READ)
 
     if read_only:
         return
@@ -183,7 +171,7 @@ def register(
         scm: str = "git",
     ) -> dict[str, Any]:
         """Create a new repository."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         body: dict[str, Any] = {"scm": scm, "is_private": is_private}
         if project_key:
             body["project"] = {"key": project_key}
@@ -191,7 +179,7 @@ def register(
 
     async def delete_repository(*, workspace: str | None = None, repo_slug: str) -> dict[str, Any]:
         """Delete a repository. Destructive."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         return await client.request("DELETE", f"/repositories/{ws}/{repo_slug}")
 
     async def fork_repository(
@@ -202,7 +190,7 @@ def register(
         name: str | None = None,
     ) -> dict[str, Any]:
         """Fork a repository."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         body: dict[str, Any] = {}
         if name:
             body["name"] = name
@@ -219,7 +207,7 @@ def register(
         branch: str | None = None,
     ) -> dict[str, Any]:
         """Create a commit by writing files on a branch."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         reserved_fields = {"message", "branch"}
         conflict = reserved_fields.intersection(files)
         if conflict:
@@ -236,7 +224,7 @@ def register(
         *, workspace: str | None = None, repo_slug: str, name: str, target: str
     ) -> dict[str, Any]:
         """Create a branch pointing at a target commit hash."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         return await client.request(
             "POST",
             f"/repositories/{ws}/{repo_slug}/refs/branches",
@@ -247,7 +235,7 @@ def register(
         *, workspace: str | None = None, repo_slug: str, name: str
     ) -> dict[str, Any]:
         """Delete a branch. Destructive."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         return await client.request(
             "DELETE", f"/repositories/{ws}/{repo_slug}/refs/branches/{name}"
         )
@@ -256,17 +244,17 @@ def register(
         *, workspace: str | None = None, repo_slug: str, name: str, target: str
     ) -> dict[str, Any]:
         """Create a tag pointing at a target commit hash."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         return await client.request(
             "POST",
             f"/repositories/{ws}/{repo_slug}/refs/tags",
             body={"name": name, "target": {"hash": target}},
         )
 
-    mcp.add_tool(_wrap(create_repository), annotations=WRITE)
-    mcp.add_tool(_wrap(delete_repository), annotations=DESTRUCTIVE)
-    mcp.add_tool(_wrap(fork_repository), annotations=WRITE)
-    mcp.add_tool(_wrap(create_commit), annotations=WRITE)
-    mcp.add_tool(_wrap(create_branch), annotations=WRITE)
-    mcp.add_tool(_wrap(delete_branch), annotations=DESTRUCTIVE)
-    mcp.add_tool(_wrap(create_tag), annotations=WRITE)
+    ctx.tool(create_repository, WRITE)
+    ctx.tool(delete_repository, DESTRUCTIVE)
+    ctx.tool(fork_repository, WRITE)
+    ctx.tool(create_commit, WRITE)
+    ctx.tool(create_branch, WRITE)
+    ctx.tool(delete_branch, DESTRUCTIVE)
+    ctx.tool(create_tag, WRITE)

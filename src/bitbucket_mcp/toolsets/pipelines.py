@@ -11,18 +11,17 @@ from bitbucket_mcp.client import BitbucketClient
 from bitbucket_mcp.credentials import CredentialStore
 from bitbucket_mcp.models import PipelineTarget
 from bitbucket_mcp.oauth import OAuthClient
-from bitbucket_mcp.pagination import page_params
 from bitbucket_mcp.toolsets._common import (
     READ,
     WRITE,
     AutoLoginController,
-    resolve_workspace,
+    RegisterContext,
+    build_query,
     wrap_tool,
 )
 
 if TYPE_CHECKING:
     from bitbucket_mcp.auth import AuthProvider
-
 
 
 def register(
@@ -36,7 +35,13 @@ def register(
     store: CredentialStore | None = None,
     controller: AutoLoginController | None = None,
 ) -> None:
-    _wrap = wrap_tool(auth_provider, oauth_client, store, controller)
+    ctx = RegisterContext(
+        mcp,
+        client,
+        read_only=read_only,
+        default_workspace=default_workspace,
+        wrap=wrap_tool(auth_provider, oauth_client, store, controller),
+    )
 
     async def list_pipelines(
         *,
@@ -47,10 +52,8 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List pipeline runs in a repository."""
-        ws = resolve_workspace(workspace, default_workspace)
-        query: dict[str, Any] = page_params(page, pagelen)
-        if sort:
-            query["sort"] = sort
+        ws = ctx.resolve_workspace(workspace)
+        query = build_query(page, pagelen, sort=sort)
         return await client.request(
             "GET", f"/repositories/{ws}/{repo_slug}/pipelines/", query=query
         )
@@ -66,7 +69,7 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """Get a pipeline, its steps, or a step log."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         base = f"/repositories/{ws}/{repo_slug}/pipelines/{pipeline_uuid}"
         if action == "details":
             return await client.request("GET", base)
@@ -74,15 +77,15 @@ def register(
             return await client.request(
                 "GET",
                 f"{base}/steps",
-                query=page_params(page, pagelen),
+                query=build_query(page, pagelen),
             )
         if step_uuid is None:
             raise ToolError("action='step_log' には step_uuid が必要です。")
         text = await client.request_text("GET", f"{base}/steps/{step_uuid}/log")
         return {"content": text}
 
-    mcp.add_tool(_wrap(list_pipelines), annotations=READ)
-    mcp.add_tool(_wrap(get_pipeline), annotations=READ)
+    ctx.tool(list_pipelines, READ)
+    ctx.tool(get_pipeline, READ)
 
     if read_only:
         return
@@ -95,7 +98,7 @@ def register(
         variables: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Trigger a pipeline run for a branch or tag."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         target_body: dict[str, Any] = {
             "ref_type": target.ref_type,
             "ref_name": target.ref_name,
@@ -112,11 +115,11 @@ def register(
         *, workspace: str | None = None, repo_slug: str, pipeline_uuid: str
     ) -> dict[str, Any]:
         """Stop a running pipeline."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         return await client.request(
             "POST",
             f"/repositories/{ws}/{repo_slug}/pipelines/{pipeline_uuid}/stopPipeline",
         )
 
-    mcp.add_tool(_wrap(run_pipeline), annotations=WRITE)
-    mcp.add_tool(_wrap(stop_pipeline), annotations=WRITE)
+    ctx.tool(run_pipeline, WRITE)
+    ctx.tool(stop_pipeline, WRITE)
