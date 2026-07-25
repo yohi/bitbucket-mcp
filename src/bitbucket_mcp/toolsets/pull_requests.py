@@ -88,11 +88,12 @@ def register(
             return {"content": text, "format": action}
         return await client.request("GET", f"{base}/{action}")
 
-    ctx.tool(list_pull_requests, READ)
-    ctx.tool(get_pull_request, READ)
-
-    if read_only:
-        return
+    ctx.register_tools(
+        read=[
+            (list_pull_requests, READ),
+            (get_pull_request, READ),
+        ]
+    )
 
     async def create_pull_request(
         *,
@@ -217,9 +218,13 @@ def register(
             body=body,
         )
 
-    ctx.tool(create_pull_request, WRITE)
-    ctx.tool(update_pull_request, WRITE)
-    ctx.tool(merge_pull_request, DESTRUCTIVE)
-    ctx.tool(decline_pull_request, WRITE)
-    ctx.tool(review_pull_request, WRITE)
-    ctx.tool(add_pull_request_comment, WRITE)
+    ctx.register_tools(
+        write=[
+            (create_pull_request, WRITE),
+            (update_pull_request, WRITE),
+            (decline_pull_request, WRITE),
+            (review_pull_request, WRITE),
+            (add_pull_request_comment, WRITE),
+        ],
+        destructive=[(merge_pull_request, DESTRUCTIVE)],
+    )

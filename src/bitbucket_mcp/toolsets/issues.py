@@ -73,11 +73,9 @@ def register(
             return await client.request("GET", base)
         return await client.request("GET", f"{base}/{action}")
 
-    ctx.tool(list_issues, READ)
-    ctx.tool(get_issue, READ)
-
-    if read_only:
-        return
+    ctx.register_tools(
+        read=[(list_issues, READ), (get_issue, READ)],
+    )
 
     async def create_issue(
         *,
@@ -154,7 +152,7 @@ def register(
             body={"content": {"raw": content}},
         )
 
-    ctx.tool(create_issue, WRITE)
-    ctx.tool(update_issue, WRITE)
-    ctx.tool(delete_issue, DESTRUCTIVE)
-    ctx.tool(add_issue_comment, WRITE)
+    ctx.register_tools(
+        write=[(create_issue, WRITE), (update_issue, WRITE), (add_issue_comment, WRITE)],
+        destructive=[(delete_issue, DESTRUCTIVE)],
+    )

@@ -86,11 +86,9 @@ def register(
         text = await client.request_text("GET", f"{base}/steps/{step_uuid}/log")
         return {"content": text}
 
-    ctx.tool(list_pipelines, READ)
-    ctx.tool(get_pipeline, READ)
-
-    if read_only:
-        return
+    ctx.register_tools(
+        read=[(list_pipelines, READ), (get_pipeline, READ)],
+    )
 
     async def run_pipeline(
         *,
@@ -123,5 +121,6 @@ def register(
             f"/repositories/{ws}/{repo_slug}/pipelines/{pipeline_uuid}/stopPipeline",
         )
 
-    ctx.tool(run_pipeline, WRITE)
-    ctx.tool(stop_pipeline, WRITE)
+    ctx.register_tools(
+        write=[(run_pipeline, WRITE), (stop_pipeline, WRITE)],
+    )

@@ -64,5 +64,9 @@ def register(
         query = build_query(page, pagelen, q=effective_q, sort=sort)
         return await client.request("GET", "/user/workspaces", query=query)
 
-    ctx.tool(get_current_user, READ)
-    ctx.tool(list_workspaces, READ)
+    ctx.register_tools(
+        read=[
+            (get_current_user, READ),
+            (list_workspaces, READ),
+        ]
+    )

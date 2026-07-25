@@ -55,4 +55,4 @@ def register(
         normalized = path if path.startswith("/") else f"/{path}"
         return await client.request(method.upper(), normalized, query=query, body=body)
 
-    ctx.tool(bitbucket_api, WRITE)
+    ctx.register_tools(always=[(bitbucket_api, WRITE)])

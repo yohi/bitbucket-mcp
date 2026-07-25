@@ -151,17 +151,18 @@ def register(
         query = build_query(page, pagelen, q=q, sort=sort)
         return await client.request("GET", f"/repositories/{ws}/{repo_slug}/refs/tags", query=query)
 
-    ctx.tool(list_repositories, READ)
-    ctx.tool(get_repository, READ)
-    ctx.tool(get_file_or_directory, READ)
-    ctx.tool(list_commits, READ)
-    ctx.tool(get_commit, READ)
-    ctx.tool(get_diff, READ)
-    ctx.tool(list_branches, READ)
-    ctx.tool(list_tags, READ)
-
-    if read_only:
-        return
+    ctx.register_tools(
+        read=[
+            (list_repositories, READ),
+            (get_repository, READ),
+            (get_file_or_directory, READ),
+            (list_commits, READ),
+            (get_commit, READ),
+            (get_diff, READ),
+            (list_branches, READ),
+            (list_tags, READ),
+        ]
+    )
 
     async def create_repository(
         *,
@@ -252,10 +253,16 @@ def register(
             body={"name": name, "target": {"hash": target}},
         )
 
-    ctx.tool(create_repository, WRITE)
-    ctx.tool(delete_repository, DESTRUCTIVE)
-    ctx.tool(fork_repository, WRITE)
-    ctx.tool(create_commit, WRITE)
-    ctx.tool(create_branch, WRITE)
-    ctx.tool(delete_branch, DESTRUCTIVE)
-    ctx.tool(create_tag, WRITE)
+    ctx.register_tools(
+        write=[
+            (create_repository, WRITE),
+            (fork_repository, WRITE),
+            (create_commit, WRITE),
+            (create_branch, WRITE),
+            (create_tag, WRITE),
+        ],
+        destructive=[
+            (delete_repository, DESTRUCTIVE),
+            (delete_branch, DESTRUCTIVE),
+        ],
+    )

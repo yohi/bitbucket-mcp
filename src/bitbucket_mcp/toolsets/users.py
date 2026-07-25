@@ -45,4 +45,4 @@ def register(
         """Get a user's public profile by account_id or UUID."""
         return await client.request("GET", f"/users/{selected_user}")
 
-    ctx.tool(get_user, READ)
+    ctx.register_tools(read=[(get_user, READ)])
