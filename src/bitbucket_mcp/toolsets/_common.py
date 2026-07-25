@@ -221,6 +221,44 @@ class RegisterContext:
         wrapped = self._wrap(fn) if self._wrap else fn
         self.mcp.add_tool(wrapped, annotations=annotations)
 
+    async def request_json(
+        self,
+        workspace: str | None,
+        method: str,
+        path_template: str,
+        *,
+        path_params: dict[str, Any] | None = None,
+        query: dict[str, Any] | None = None,
+        body: dict[str, Any] | None = None,
+        form: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        path = path_template.format(
+            ws=self.resolve_workspace(workspace),
+            **(path_params or {}),
+        )
+        return await self.client.request(
+            method,
+            path,
+            query=query,
+            body=body,
+            form=form,
+        )
+
+    async def request_text(
+        self,
+        workspace: str | None,
+        method: str,
+        path_template: str,
+        *,
+        path_params: dict[str, Any] | None = None,
+        query: dict[str, Any] | None = None,
+    ) -> str:
+        path = path_template.format(
+            ws=self.resolve_workspace(workspace),
+            **(path_params or {}),
+        )
+        return await self.client.request_text(method, path, query=query)
+
     def register_tools(
         self,
         *,

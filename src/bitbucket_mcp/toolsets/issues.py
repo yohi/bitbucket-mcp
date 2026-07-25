@@ -56,9 +56,14 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List issues in a repository."""
-        ws = ctx.resolve_workspace(workspace)
         query = build_query(page, pagelen, q=q, sort=sort)
-        return await client.request("GET", f"/repositories/{ws}/{repo_slug}/issues", query=query)
+        return await ctx.request_json(
+            workspace,
+            "GET",
+            "/repositories/{ws}/{repo_slug}/issues",
+            path_params={"repo_slug": repo_slug},
+            query=query,
+        )
 
     async def get_issue(
         *,
@@ -68,11 +73,23 @@ def register(
         action: Literal["details", "comments", "changes"] = "details",
     ) -> dict[str, Any]:
         """Get an issue or its comments/changes."""
-        ws = ctx.resolve_workspace(workspace)
-        base = f"/repositories/{ws}/{repo_slug}/issues/{issue_id}"
         if action == "details":
-            return await client.request("GET", base)
-        return await client.request("GET", f"{base}/{action}")
+            return await ctx.request_json(
+                workspace,
+                "GET",
+                "/repositories/{ws}/{repo_slug}/issues/{issue_id}",
+                path_params={"repo_slug": repo_slug, "issue_id": issue_id},
+            )
+        return await ctx.request_json(
+            workspace,
+            "GET",
+            "/repositories/{ws}/{repo_slug}/issues/{issue_id}/{action}",
+            path_params={
+                "repo_slug": repo_slug,
+                "issue_id": issue_id,
+                "action": action,
+            },
+        )
 
     ctx.register_tools(
         read=[(list_issues, READ), (get_issue, READ)],
@@ -89,7 +106,6 @@ def register(
         assignee: str | None = None,
     ) -> dict[str, Any]:
         """Create an issue."""
-        ws = ctx.resolve_workspace(workspace)
         body = build_body(
             title=title,
             content={"raw": content} if content else None,
@@ -97,7 +113,13 @@ def register(
             priority=priority,
             assignee={"account_id": assignee} if assignee else None,
         )
-        return await client.request("POST", f"/repositories/{ws}/{repo_slug}/issues", body=body)
+        return await ctx.request_json(
+            workspace,
+            "POST",
+            "/repositories/{ws}/{repo_slug}/issues",
+            path_params={"repo_slug": repo_slug},
+            body=body,
+        )
 
     async def update_issue(
         *,
@@ -111,7 +133,6 @@ def register(
         assignee: str | None = None,
     ) -> dict[str, Any]:
         """Update an issue."""
-        ws = ctx.resolve_workspace(workspace)
         body = build_body(
             title=title,
             state=state,
@@ -121,16 +142,24 @@ def register(
         )
         if not body:
             raise ToolError("update_issue には少なくとも1つの更新項目が必要です。")
-        return await client.request(
-            "PUT", f"/repositories/{ws}/{repo_slug}/issues/{issue_id}", body=body
+        return await ctx.request_json(
+            workspace,
+            "PUT",
+            "/repositories/{ws}/{repo_slug}/issues/{issue_id}",
+            path_params={"repo_slug": repo_slug, "issue_id": issue_id},
+            body=body,
         )
 
     async def delete_issue(
         *, workspace: str | None = None, repo_slug: str, issue_id: int
     ) -> dict[str, Any]:
         """Delete an issue. Destructive."""
-        ws = ctx.resolve_workspace(workspace)
-        return await client.request("DELETE", f"/repositories/{ws}/{repo_slug}/issues/{issue_id}")
+        return await ctx.request_json(
+            workspace,
+            "DELETE",
+            "/repositories/{ws}/{repo_slug}/issues/{issue_id}",
+            path_params={"repo_slug": repo_slug, "issue_id": issue_id},
+        )
 
     async def add_issue_comment(
         *,
@@ -140,10 +169,11 @@ def register(
         content: str,
     ) -> dict[str, Any]:
         """Add a comment to an issue."""
-        ws = ctx.resolve_workspace(workspace)
-        return await client.request(
+        return await ctx.request_json(
+            workspace,
             "POST",
-            f"/repositories/{ws}/{repo_slug}/issues/{issue_id}/comments",
+            "/repositories/{ws}/{repo_slug}/issues/{issue_id}/comments",
+            path_params={"repo_slug": repo_slug, "issue_id": issue_id},
             body={"content": {"raw": content}},
         )
 

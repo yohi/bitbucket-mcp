@@ -36,6 +36,68 @@ def test_create_toolset_context_from_register_args_preserves_options() -> None:
     assert ctx.default_workspace == "workspace"
 
 
+type _RequestCall = tuple[
+    str,
+    str,
+    dict[str, object] | None,
+    dict[str, object] | None,
+    dict[str, object] | None,
+]
+
+
+async def test_register_context_request_json_resolves_workspace() -> None:
+    calls: list[_RequestCall] = []
+
+    class _Client:
+        async def request(
+            self,
+            method: str,
+            path: str,
+            *,
+            query: dict[str, object] | None = None,
+            body: dict[str, object] | None = None,
+            form: dict[str, object] | None = None,
+        ) -> dict[str, object]:
+            calls.append((method, path, query, body, form))
+            return {"ok": True}
+
+    ctx = create_toolset_context_from_register_args(object(), _Client(), True, "ws")
+    result = await ctx.request_json(
+        "workspace",
+        "GET",
+        "/repositories/{ws}/{repo_slug}",
+        path_params={"repo_slug": "repo"},
+        query={"page": 1},
+    )
+    assert result == {"ok": True}
+    assert calls == [("GET", "/repositories/workspace/repo", {"page": 1}, None, None)]
+
+
+async def test_register_context_request_text_resolves_workspace() -> None:
+    calls: list[tuple[str, str, dict[str, object] | None]] = []
+
+    class _Client:
+        async def request_text(
+            self,
+            method: str,
+            path: str,
+            *,
+            query: dict[str, object] | None = None,
+        ) -> str:
+            calls.append((method, path, query))
+            return "text"
+
+    ctx = create_toolset_context_from_register_args(object(), _Client(), True, "ws")
+    result = await ctx.request_text(
+        "workspace",
+        "GET",
+        "/repositories/{ws}/{repo_slug}/diff/{spec}",
+        path_params={"repo_slug": "repo", "spec": "abc..def"},
+    )
+    assert result == "text"
+    assert calls == [("GET", "/repositories/workspace/repo/diff/abc..def", None)]
+
+
 async def test_require_auth_passes_when_authenticated() -> None:
     provider = StaticAuthProvider("Bearer x")
     controller = AutoLoginController()

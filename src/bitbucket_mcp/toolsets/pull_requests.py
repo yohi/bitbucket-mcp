@@ -57,10 +57,13 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List pull requests, optionally filtered by state."""
-        ws = ctx.resolve_workspace(workspace)
         query = build_query(page, pagelen, state=state, q=q, sort=sort)
-        return await client.request(
-            "GET", f"/repositories/{ws}/{repo_slug}/pullrequests", query=query
+        return await ctx.request_json(
+            workspace,
+            "GET",
+            "/repositories/{ws}/{repo_slug}/pullrequests",
+            path_params={"repo_slug": repo_slug},
+            query=query,
         )
 
     async def get_pull_request(
@@ -80,14 +83,35 @@ def register(
         ] = "details",
     ) -> dict[str, Any]:
         """Get a pull request or one of its sub-resources."""
-        ws = ctx.resolve_workspace(workspace)
-        base = f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}"
         if action == "details":
-            return await client.request("GET", base)
+            return await ctx.request_json(
+                workspace,
+                "GET",
+                "/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}",
+                path_params={"repo_slug": repo_slug, "pull_request_id": pull_request_id},
+            )
         if action in ("diff", "patch"):
-            text = await client.request_text("GET", f"{base}/{action}")
+            text = await ctx.request_text(
+                workspace,
+                "GET",
+                "/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}/{action}",
+                path_params={
+                    "repo_slug": repo_slug,
+                    "pull_request_id": pull_request_id,
+                    "action": action,
+                },
+            )
             return {"content": text, "format": action}
-        return await client.request("GET", f"{base}/{action}")
+        return await ctx.request_json(
+            workspace,
+            "GET",
+            "/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}/{action}",
+            path_params={
+                "repo_slug": repo_slug,
+                "pull_request_id": pull_request_id,
+                "action": action,
+            },
+        )
 
     ctx.register_tools(
         read=[
@@ -108,7 +132,6 @@ def register(
         close_source_branch: bool | None = None,
     ) -> dict[str, Any]:
         """Create a pull request."""
-        ws = ctx.resolve_workspace(workspace)
         body = build_body(
             title=title,
             source={"branch": {"name": source_branch}},
@@ -119,8 +142,12 @@ def register(
             reviewers=([{"account_id": r} for r in reviewers] if reviewers else None),
             close_source_branch=close_source_branch,
         )
-        return await client.request(
-            "POST", f"/repositories/{ws}/{repo_slug}/pullrequests", body=body
+        return await ctx.request_json(
+            workspace,
+            "POST",
+            "/repositories/{ws}/{repo_slug}/pullrequests",
+            path_params={"repo_slug": repo_slug},
+            body=body,
         )
 
     async def update_pull_request(
@@ -133,15 +160,16 @@ def register(
         destination_branch: str | None = None,
     ) -> dict[str, Any]:
         """Update a pull request's title, description, or destination."""
-        ws = ctx.resolve_workspace(workspace)
         body = build_body(
             title=title,
             description=description,
             destination=({"branch": {"name": destination_branch}} if destination_branch else None),
         )
-        return await client.request(
+        return await ctx.request_json(
+            workspace,
             "PUT",
-            f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}",
+            "/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}",
+            path_params={"repo_slug": repo_slug, "pull_request_id": pull_request_id},
             body=body,
         )
 
@@ -155,15 +183,16 @@ def register(
         close_source_branch: bool | None = None,
     ) -> dict[str, Any]:
         """Merge a pull request. Destructive."""
-        ws = ctx.resolve_workspace(workspace)
         body = build_body(
             merge_strategy=merge_strategy if merge_strategy else None,
             message=message if message else None,
             close_source_branch=close_source_branch,
         )
-        return await client.request(
+        return await ctx.request_json(
+            workspace,
             "POST",
-            f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}/merge",
+            "/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}/merge",
+            path_params={"repo_slug": repo_slug, "pull_request_id": pull_request_id},
             body=body,
         )
 
@@ -174,10 +203,11 @@ def register(
         pull_request_id: int,
     ) -> dict[str, Any]:
         """Decline a pull request."""
-        ws = ctx.resolve_workspace(workspace)
-        return await client.request(
+        return await ctx.request_json(
+            workspace,
             "POST",
-            f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}/decline",
+            "/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}/decline",
+            path_params={"repo_slug": repo_slug, "pull_request_id": pull_request_id},
         )
 
     async def review_pull_request(
@@ -188,11 +218,18 @@ def register(
         action: Literal["approve", "unapprove", "request_changes", "unrequest_changes"],
     ) -> dict[str, Any]:
         """Approve/unapprove or request/unrequest changes on a pull request."""
-        ws = ctx.resolve_workspace(workspace)
-        base = f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}"
         endpoint = "approve" if action in ("approve", "unapprove") else "request-changes"
         method = "POST" if action in ("approve", "request_changes") else "DELETE"
-        return await client.request(method, f"{base}/{endpoint}")
+        return await ctx.request_json(
+            workspace,
+            method,
+            "/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}/{endpoint}",
+            path_params={
+                "repo_slug": repo_slug,
+                "pull_request_id": pull_request_id,
+                "endpoint": endpoint,
+            },
+        )
 
     async def add_pull_request_comment(
         *,
@@ -203,13 +240,14 @@ def register(
         inline: InlineComment | None = None,
     ) -> dict[str, Any]:
         """Add a comment (optionally inline) to a pull request."""
-        ws = ctx.resolve_workspace(workspace)
         body: dict[str, Any] = {"content": {"raw": content}}
         if inline is not None:
             body["inline"] = {"path": inline.path, "to": inline.to}
-        return await client.request(
+        return await ctx.request_json(
+            workspace,
             "POST",
-            f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}/comments",
+            "/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}/comments",
+            path_params={"repo_slug": repo_slug, "pull_request_id": pull_request_id},
             body=body,
         )
 

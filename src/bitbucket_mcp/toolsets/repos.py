@@ -56,14 +56,22 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List repositories in a workspace."""
-        ws = ctx.resolve_workspace(workspace)
         query = build_query(page, pagelen, q=q, sort=sort, role=role)
-        return await client.request("GET", f"/repositories/{ws}", query=query)
+        return await ctx.request_json(
+            workspace,
+            "GET",
+            "/repositories/{ws}",
+            query=query,
+        )
 
     async def get_repository(*, workspace: str | None = None, repo_slug: str) -> dict[str, Any]:
         """Get a single repository's metadata."""
-        ws = ctx.resolve_workspace(workspace)
-        return await client.request("GET", f"/repositories/{ws}/{repo_slug}")
+        return await ctx.request_json(
+            workspace,
+            "GET",
+            "/repositories/{ws}/{repo_slug}",
+            path_params={"repo_slug": repo_slug},
+        )
 
     async def get_file_or_directory(
         *,
@@ -74,11 +82,12 @@ def register(
         page: int | None = None,
     ) -> dict[str, Any]:
         """Get file contents or a directory listing at a commit."""
-        ws = ctx.resolve_workspace(workspace)
         query = build_query(page)
-        text = await client.request_text(
+        text = await ctx.request_text(
+            workspace,
             "GET",
-            f"/repositories/{ws}/{repo_slug}/src/{commit}/{path}",
+            "/repositories/{ws}/{repo_slug}/src/{commit}/{path}",
+            path_params={"repo_slug": repo_slug, "commit": commit, "path": path},
             query=query,
         )
         return {"content": text}
@@ -93,19 +102,30 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List commits, optionally scoped to a revision or path."""
-        ws = ctx.resolve_workspace(workspace)
         query = build_query(page, pagelen, path=path)
-        endpoint = f"/repositories/{ws}/{repo_slug}/commits"
+        path_template = "/repositories/{ws}/{repo_slug}/commits"
+        path_params: dict[str, Any] = {"repo_slug": repo_slug}
         if revision:
-            endpoint = f"{endpoint}/{revision}"
-        return await client.request("GET", endpoint, query=query)
+            path_template += "/{revision}"
+            path_params["revision"] = revision
+        return await ctx.request_json(
+            workspace,
+            "GET",
+            path_template,
+            path_params=path_params,
+            query=query,
+        )
 
     async def get_commit(
         *, workspace: str | None = None, repo_slug: str, commit: str
     ) -> dict[str, Any]:
         """Get a single commit by hash."""
-        ws = ctx.resolve_workspace(workspace)
-        return await client.request("GET", f"/repositories/{ws}/{repo_slug}/commit/{commit}")
+        return await ctx.request_json(
+            workspace,
+            "GET",
+            "/repositories/{ws}/{repo_slug}/commit/{commit}",
+            path_params={"repo_slug": repo_slug, "commit": commit},
+        )
 
     async def get_diff(
         *,
@@ -115,11 +135,19 @@ def register(
         action: Literal["diff", "diffstat", "patch"] = "diff",
     ) -> dict[str, Any]:
         """Get a diff, diffstat, or patch for a commit spec (e.g. 'a..b')."""
-        ws = ctx.resolve_workspace(workspace)
-        base = f"/repositories/{ws}/{repo_slug}"
         if action == "diffstat":
-            return await client.request("GET", f"{base}/diffstat/{spec}")
-        text = await client.request_text("GET", f"{base}/{action}/{spec}")
+            return await ctx.request_json(
+                workspace,
+                "GET",
+                "/repositories/{ws}/{repo_slug}/diffstat/{spec}",
+                path_params={"repo_slug": repo_slug, "spec": spec},
+            )
+        text = await ctx.request_text(
+            workspace,
+            "GET",
+            "/repositories/{ws}/{repo_slug}/{action}/{spec}",
+            path_params={"repo_slug": repo_slug, "action": action, "spec": spec},
+        )
         return {"content": text, "format": action}
 
     async def list_branches(
@@ -132,10 +160,13 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List branches in a repository."""
-        ws = ctx.resolve_workspace(workspace)
         query = build_query(page, pagelen, q=q, sort=sort)
-        return await client.request(
-            "GET", f"/repositories/{ws}/{repo_slug}/refs/branches", query=query
+        return await ctx.request_json(
+            workspace,
+            "GET",
+            "/repositories/{ws}/{repo_slug}/refs/branches",
+            path_params={"repo_slug": repo_slug},
+            query=query,
         )
 
     async def list_tags(
@@ -148,9 +179,14 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List tags in a repository."""
-        ws = ctx.resolve_workspace(workspace)
         query = build_query(page, pagelen, q=q, sort=sort)
-        return await client.request("GET", f"/repositories/{ws}/{repo_slug}/refs/tags", query=query)
+        return await ctx.request_json(
+            workspace,
+            "GET",
+            "/repositories/{ws}/{repo_slug}/refs/tags",
+            path_params={"repo_slug": repo_slug},
+            query=query,
+        )
 
     ctx.register_tools(
         read=[
@@ -174,18 +210,27 @@ def register(
         scm: str = "git",
     ) -> dict[str, Any]:
         """Create a new repository."""
-        ws = ctx.resolve_workspace(workspace)
         body = build_body(
             scm=scm,
             is_private=is_private,
             project={"key": project_key} if project_key else None,
         )
-        return await client.request("POST", f"/repositories/{ws}/{repo_slug}", body=body)
+        return await ctx.request_json(
+            workspace,
+            "POST",
+            "/repositories/{ws}/{repo_slug}",
+            path_params={"repo_slug": repo_slug},
+            body=body,
+        )
 
     async def delete_repository(*, workspace: str | None = None, repo_slug: str) -> dict[str, Any]:
         """Delete a repository. Destructive."""
-        ws = ctx.resolve_workspace(workspace)
-        return await client.request("DELETE", f"/repositories/{ws}/{repo_slug}")
+        return await ctx.request_json(
+            workspace,
+            "DELETE",
+            "/repositories/{ws}/{repo_slug}",
+            path_params={"repo_slug": repo_slug},
+        )
 
     async def fork_repository(
         *,
@@ -195,12 +240,17 @@ def register(
         name: str | None = None,
     ) -> dict[str, Any]:
         """Fork a repository."""
-        ws = ctx.resolve_workspace(workspace)
         body = build_body(
             name=name if name else None,
             workspace={"slug": target_workspace} if target_workspace else None,
         )
-        return await client.request("POST", f"/repositories/{ws}/{repo_slug}/forks", body=body)
+        return await ctx.request_json(
+            workspace,
+            "POST",
+            "/repositories/{ws}/{repo_slug}/forks",
+            path_params={"repo_slug": repo_slug},
+            body=body,
+        )
 
     async def create_commit(
         *,
@@ -211,7 +261,6 @@ def register(
         branch: str | None = None,
     ) -> dict[str, Any]:
         """Create a commit by writing files on a branch."""
-        ws = ctx.resolve_workspace(workspace)
         reserved_fields = {"message", "branch"}
         conflict = reserved_fields.intersection(files)
         if conflict:
@@ -222,16 +271,23 @@ def register(
             form["branch"] = branch
         for file_path, content in files.items():
             form[file_path] = content
-        return await client.request("POST", f"/repositories/{ws}/{repo_slug}/src", form=form)
+        return await ctx.request_json(
+            workspace,
+            "POST",
+            "/repositories/{ws}/{repo_slug}/src",
+            path_params={"repo_slug": repo_slug},
+            form=form,
+        )
 
     async def create_branch(
         *, workspace: str | None = None, repo_slug: str, name: str, target: str
     ) -> dict[str, Any]:
         """Create a branch pointing at a target commit hash."""
-        ws = ctx.resolve_workspace(workspace)
-        return await client.request(
+        return await ctx.request_json(
+            workspace,
             "POST",
-            f"/repositories/{ws}/{repo_slug}/refs/branches",
+            "/repositories/{ws}/{repo_slug}/refs/branches",
+            path_params={"repo_slug": repo_slug},
             body={"name": name, "target": {"hash": target}},
         )
 
@@ -239,19 +295,22 @@ def register(
         *, workspace: str | None = None, repo_slug: str, name: str
     ) -> dict[str, Any]:
         """Delete a branch. Destructive."""
-        ws = ctx.resolve_workspace(workspace)
-        return await client.request(
-            "DELETE", f"/repositories/{ws}/{repo_slug}/refs/branches/{name}"
+        return await ctx.request_json(
+            workspace,
+            "DELETE",
+            "/repositories/{ws}/{repo_slug}/refs/branches/{name}",
+            path_params={"repo_slug": repo_slug, "name": name},
         )
 
     async def create_tag(
         *, workspace: str | None = None, repo_slug: str, name: str, target: str
     ) -> dict[str, Any]:
         """Create a tag pointing at a target commit hash."""
-        ws = ctx.resolve_workspace(workspace)
-        return await client.request(
+        return await ctx.request_json(
+            workspace,
             "POST",
-            f"/repositories/{ws}/{repo_slug}/refs/tags",
+            "/repositories/{ws}/{repo_slug}/refs/tags",
+            path_params={"repo_slug": repo_slug},
             body={"name": name, "target": {"hash": target}},
         )
 
