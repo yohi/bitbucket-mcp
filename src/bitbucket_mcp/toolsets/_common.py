@@ -216,3 +216,24 @@ class RegisterContext:
         """ツールを登録する。"""
         wrapped = self._wrap(fn) if self._wrap else fn
         self.mcp.add_tool(wrapped, annotations=annotations)
+
+
+def create_toolset_context(
+    mcp: Any,
+    client: Any,
+    *,
+    read_only: bool,
+    default_workspace: str | None = None,
+    auth_provider: AuthProvider | None = None,
+    oauth_client: OAuthClient | None = None,
+    store: CredentialStore | None = None,
+    controller: AutoLoginController | None = None,
+) -> RegisterContext:
+    """toolset 登録の共通コンテキストを生成する。"""
+    return RegisterContext(
+        mcp,
+        client,
+        read_only=read_only,
+        default_workspace=default_workspace,
+        wrap=wrap_tool(auth_provider, oauth_client, store, controller),
+    )
