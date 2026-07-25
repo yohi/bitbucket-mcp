@@ -135,12 +135,9 @@ def register(
         content: str,
     ) -> dict[str, Any]:
         """Add a comment to an issue."""
+        body = {"content": {"raw": content}}
         return await repo_json(
-            workspace,
-            "POST",
-            repo_slug,
-            f"/issues/{issue_id}/comments",
-            body={"content": {"raw": content}},
+            workspace, "POST", repo_slug, f"/issues/{issue_id}/comments", body=body
         )
 
     ctx.register_tools(

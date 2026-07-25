@@ -83,13 +83,8 @@ def register(
     ) -> dict[str, Any]:
         """Get file contents or a directory listing at a commit."""
         query = build_query(page)
-        text = await repo_text(
-            workspace,
-            "GET",
-            repo_slug,
-            f"/src/{commit}/{path}",
-            query=query,
-        )
+        suffix = f"/src/{commit}/{path}"
+        text = await repo_text(workspace, "GET", repo_slug, suffix, query=query)
         return {"content": text}
 
     async def list_commits(
@@ -103,18 +98,8 @@ def register(
     ) -> dict[str, Any]:
         """List commits, optionally scoped to a revision or path."""
         query = build_query(page, pagelen, path=path)
-        path_template = "/repositories/{ws}/{repo_slug}/commits"
-        path_params: dict[str, Any] = {"repo_slug": repo_slug}
-        if revision:
-            path_template += "/{revision}"
-            path_params["revision"] = revision
-        return await repo_json(
-            workspace,
-            "GET",
-            repo_slug,
-            "/commits" + (f"/{revision}" if revision else ""),
-            query=query,
-        )
+        suffix = "/commits" + (f"/{revision}" if revision else "")
+        return await repo_json(workspace, "GET", repo_slug, suffix, query=query)
 
     async def get_commit(
         *, workspace: str | None = None, repo_slug: str, commit: str
@@ -233,13 +218,8 @@ def register(
         *, workspace: str | None = None, repo_slug: str, name: str, target: str
     ) -> dict[str, Any]:
         """Create a branch pointing at a target commit hash."""
-        return await repo_json(
-            workspace,
-            "POST",
-            repo_slug,
-            "/refs/branches",
-            body={"name": name, "target": {"hash": target}},
-        )
+        body = {"name": name, "target": {"hash": target}}
+        return await repo_json(workspace, "POST", repo_slug, "/refs/branches", body=body)
 
     async def delete_branch(
         *, workspace: str | None = None, repo_slug: str, name: str
@@ -251,13 +231,8 @@ def register(
         *, workspace: str | None = None, repo_slug: str, name: str, target: str
     ) -> dict[str, Any]:
         """Create a tag pointing at a target commit hash."""
-        return await repo_json(
-            workspace,
-            "POST",
-            repo_slug,
-            "/refs/tags",
-            body={"name": name, "target": {"hash": target}},
-        )
+        body = {"name": name, "target": {"hash": target}}
+        return await repo_json(workspace, "POST", repo_slug, "/refs/tags", body=body)
 
     ctx.register_tools(
         write=[

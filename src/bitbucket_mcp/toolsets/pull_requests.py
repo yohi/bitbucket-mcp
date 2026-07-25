@@ -85,19 +85,11 @@ def register(
         if action == "details":
             return await repo_json(workspace, "GET", repo_slug, f"/pullrequests/{pull_request_id}")
         if action in ("diff", "patch"):
-            text = await repo_text(
-                workspace,
-                "GET",
-                repo_slug,
-                f"/pullrequests/{pull_request_id}/{action}",
-            )
+            suffix = f"/pullrequests/{pull_request_id}/{action}"
+            text = await repo_text(workspace, "GET", repo_slug, suffix)
             return {"content": text, "format": action}
-        return await repo_json(
-            workspace,
-            "GET",
-            repo_slug,
-            f"/pullrequests/{pull_request_id}/{action}",
-        )
+        suffix = f"/pullrequests/{pull_request_id}/{action}"
+        return await repo_json(workspace, "GET", repo_slug, suffix)
 
     ctx.register_tools(
         read=[
@@ -145,13 +137,8 @@ def register(
             description=description,
             destination=({"branch": {"name": destination_branch}} if destination_branch else None),
         )
-        return await repo_json(
-            workspace,
-            "PUT",
-            repo_slug,
-            f"/pullrequests/{pull_request_id}",
-            body=body,
-        )
+        suffix = f"/pullrequests/{pull_request_id}"
+        return await repo_json(workspace, "PUT", repo_slug, suffix, body=body)
 
     async def merge_pull_request(
         *,
@@ -168,13 +155,8 @@ def register(
             message=message if message else None,
             close_source_branch=close_source_branch,
         )
-        return await repo_json(
-            workspace,
-            "POST",
-            repo_slug,
-            f"/pullrequests/{pull_request_id}/merge",
-            body=body,
-        )
+        suffix = f"/pullrequests/{pull_request_id}/merge"
+        return await repo_json(workspace, "POST", repo_slug, suffix, body=body)
 
     async def decline_pull_request(
         *,
@@ -183,12 +165,8 @@ def register(
         pull_request_id: int,
     ) -> dict[str, Any]:
         """Decline a pull request."""
-        return await repo_json(
-            workspace,
-            "POST",
-            repo_slug,
-            f"/pullrequests/{pull_request_id}/decline",
-        )
+        suffix = f"/pullrequests/{pull_request_id}/decline"
+        return await repo_json(workspace, "POST", repo_slug, suffix)
 
     async def review_pull_request(
         *,
@@ -200,12 +178,8 @@ def register(
         """Approve/unapprove or request/unrequest changes on a pull request."""
         endpoint = "approve" if action in ("approve", "unapprove") else "request-changes"
         method = "POST" if action in ("approve", "request_changes") else "DELETE"
-        return await repo_json(
-            workspace,
-            method,
-            repo_slug,
-            f"/pullrequests/{pull_request_id}/{endpoint}",
-        )
+        suffix = f"/pullrequests/{pull_request_id}/{endpoint}"
+        return await repo_json(workspace, method, repo_slug, suffix)
 
     async def add_pull_request_comment(
         *,
@@ -219,13 +193,8 @@ def register(
         body: dict[str, Any] = {"content": {"raw": content}}
         if inline is not None:
             body["inline"] = {"path": inline.path, "to": inline.to}
-        return await repo_json(
-            workspace,
-            "POST",
-            repo_slug,
-            f"/pullrequests/{pull_request_id}/comments",
-            body=body,
-        )
+        suffix = f"/pullrequests/{pull_request_id}/comments"
+        return await repo_json(workspace, "POST", repo_slug, suffix, body=body)
 
     ctx.register_tools(
         write=[
