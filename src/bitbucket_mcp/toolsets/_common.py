@@ -190,6 +190,48 @@ def build_body(**fields: Any) -> dict[str, Any]:
     return {key: value for key, value in fields.items() if value is not None}
 
 
+async def request_repo_json(
+    ctx: Any,
+    workspace: str | None,
+    method: str,
+    repo_slug: str,
+    suffix: str,
+    *,
+    path_params: dict[str, Any] | None = None,
+    query: dict[str, Any] | None = None,
+    body: dict[str, Any] | None = None,
+    form: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return await ctx.request_json(
+        workspace,
+        method,
+        f"/repositories/{{ws}}/{{repo_slug}}{suffix}",
+        path_params={"repo_slug": repo_slug, **(path_params or {})},
+        query=query,
+        body=body,
+        form=form,
+    )
+
+
+async def request_repo_text(
+    ctx: Any,
+    workspace: str | None,
+    method: str,
+    repo_slug: str,
+    suffix: str,
+    *,
+    path_params: dict[str, Any] | None = None,
+    query: dict[str, Any] | None = None,
+) -> str:
+    return await ctx.request_text(
+        workspace,
+        method,
+        f"/repositories/{{ws}}/{{repo_slug}}{suffix}",
+        path_params={"repo_slug": repo_slug, **(path_params or {})},
+        query=query,
+    )
+
+
 class RegisterContext:
     """toolset 登録の共通コンテキスト。"""
 

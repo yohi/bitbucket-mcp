@@ -13,6 +13,8 @@ from bitbucket_mcp.toolsets._common import (  # pyright: ignore[reportPrivateUsa
     _perform_auto_login,  # pyright: ignore[reportPrivateUsage]
     build_body,
     create_toolset_context_from_register_args,
+    request_repo_json,
+    request_repo_text,
     require_auth,
 )
 
@@ -96,6 +98,50 @@ async def test_register_context_request_text_resolves_workspace() -> None:
     )
     assert result == "text"
     assert calls == [("GET", "/repositories/workspace/repo/diff/abc..def", None)]
+
+
+async def test_request_repo_json_builds_repository_path() -> None:
+    calls: list[tuple[str, str, dict[str, object] | None]] = []
+
+    class _Ctx:
+        async def request_json(
+            self,
+            workspace: str | None,
+            method: str,
+            path_template: str,
+            *,
+            path_params: dict[str, object] | None = None,
+            query: dict[str, object] | None = None,
+            body: dict[str, object] | None = None,
+            form: dict[str, object] | None = None,
+        ) -> dict[str, object]:
+            calls.append((method, path_template.format(ws=workspace, **(path_params or {})), query))
+            return {"ok": True}
+
+    result = await request_repo_json(_Ctx(), "workspace", "GET", "repo", "/issues")
+    assert result == {"ok": True}
+    assert calls == [("GET", "/repositories/workspace/repo/issues", None)]
+
+
+async def test_request_repo_text_builds_repository_path() -> None:
+    calls: list[tuple[str, str, dict[str, object] | None]] = []
+
+    class _Ctx:
+        async def request_text(
+            self,
+            workspace: str | None,
+            method: str,
+            path_template: str,
+            *,
+            path_params: dict[str, object] | None = None,
+            query: dict[str, object] | None = None,
+        ) -> str:
+            calls.append((method, path_template.format(ws=workspace, **(path_params or {})), query))
+            return "text"
+
+    result = await request_repo_text(_Ctx(), "workspace", "GET", "repo", "/src/x")
+    assert result == "text"
+    assert calls == [("GET", "/repositories/workspace/repo/src/x", None)]
 
 
 async def test_require_auth_passes_when_authenticated() -> None:
