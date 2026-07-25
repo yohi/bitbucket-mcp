@@ -217,6 +217,28 @@ class RegisterContext:
         wrapped = self._wrap(fn) if self._wrap else fn
         self.mcp.add_tool(wrapped, annotations=annotations)
 
+    def register_tools(
+        self,
+        *,
+        read: list[tuple[Callable[..., Awaitable[Any]], ToolAnnotations]] | None = None,
+        write: list[tuple[Callable[..., Awaitable[Any]], ToolAnnotations]] | None = None,
+        destructive: list[tuple[Callable[..., Awaitable[Any]], ToolAnnotations]] | None = None,
+        always: list[tuple[Callable[..., Awaitable[Any]], ToolAnnotations]] | None = None,
+    ) -> None:
+        """ツールを一括登録する。read_only の場合は write/destructive をスキップする。
+        always は read_only に関係なく常に登録される。
+        """
+        for fn, ann in always or []:
+            self.tool(fn, ann)
+        for fn, ann in read or []:
+            self.tool(fn, ann)
+        if self.read_only:
+            return
+        for fn, ann in write or []:
+            self.tool(fn, ann)
+        for fn, ann in destructive or []:
+            self.tool(fn, ann)
+
 
 def create_toolset_context(
     mcp: Any,
