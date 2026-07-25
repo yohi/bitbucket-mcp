@@ -18,6 +18,7 @@ from bitbucket_mcp.toolsets._common import (
     build_body,
     build_query,
     create_toolset_context_from_register_args,
+    request_repo_json,
 )
 
 if TYPE_CHECKING:
@@ -57,13 +58,7 @@ def register(
     ) -> dict[str, Any]:
         """List issues in a repository."""
         query = build_query(page, pagelen, q=q, sort=sort)
-        return await ctx.request_json(
-            workspace,
-            "GET",
-            "/repositories/{ws}/{repo_slug}/issues",
-            path_params={"repo_slug": repo_slug},
-            query=query,
-        )
+        return await request_repo_json(ctx, workspace, "GET", repo_slug, "/issues", query=query)
 
     async def get_issue(
         *,
@@ -74,21 +69,9 @@ def register(
     ) -> dict[str, Any]:
         """Get an issue or its comments/changes."""
         if action == "details":
-            return await ctx.request_json(
-                workspace,
-                "GET",
-                "/repositories/{ws}/{repo_slug}/issues/{issue_id}",
-                path_params={"repo_slug": repo_slug, "issue_id": issue_id},
-            )
-        return await ctx.request_json(
-            workspace,
-            "GET",
-            "/repositories/{ws}/{repo_slug}/issues/{issue_id}/{action}",
-            path_params={
-                "repo_slug": repo_slug,
-                "issue_id": issue_id,
-                "action": action,
-            },
+            return await request_repo_json(ctx, workspace, "GET", repo_slug, f"/issues/{issue_id}")
+        return await request_repo_json(
+            ctx, workspace, "GET", repo_slug, f"/issues/{issue_id}/{action}"
         )
 
     ctx.register_tools(
@@ -113,13 +96,7 @@ def register(
             priority=priority,
             assignee={"account_id": assignee} if assignee else None,
         )
-        return await ctx.request_json(
-            workspace,
-            "POST",
-            "/repositories/{ws}/{repo_slug}/issues",
-            path_params={"repo_slug": repo_slug},
-            body=body,
-        )
+        return await request_repo_json(ctx, workspace, "POST", repo_slug, "/issues", body=body)
 
     async def update_issue(
         *,
@@ -142,24 +119,15 @@ def register(
         )
         if not body:
             raise ToolError("update_issue には少なくとも1つの更新項目が必要です。")
-        return await ctx.request_json(
-            workspace,
-            "PUT",
-            "/repositories/{ws}/{repo_slug}/issues/{issue_id}",
-            path_params={"repo_slug": repo_slug, "issue_id": issue_id},
-            body=body,
+        return await request_repo_json(
+            ctx, workspace, "PUT", repo_slug, f"/issues/{issue_id}", body=body
         )
 
     async def delete_issue(
         *, workspace: str | None = None, repo_slug: str, issue_id: int
     ) -> dict[str, Any]:
         """Delete an issue. Destructive."""
-        return await ctx.request_json(
-            workspace,
-            "DELETE",
-            "/repositories/{ws}/{repo_slug}/issues/{issue_id}",
-            path_params={"repo_slug": repo_slug, "issue_id": issue_id},
-        )
+        return await request_repo_json(ctx, workspace, "DELETE", repo_slug, f"/issues/{issue_id}")
 
     async def add_issue_comment(
         *,
@@ -169,11 +137,12 @@ def register(
         content: str,
     ) -> dict[str, Any]:
         """Add a comment to an issue."""
-        return await ctx.request_json(
+        return await request_repo_json(
+            ctx,
             workspace,
             "POST",
-            "/repositories/{ws}/{repo_slug}/issues/{issue_id}/comments",
-            path_params={"repo_slug": repo_slug, "issue_id": issue_id},
+            repo_slug,
+            f"/issues/{issue_id}/comments",
             body={"content": {"raw": content}},
         )
 

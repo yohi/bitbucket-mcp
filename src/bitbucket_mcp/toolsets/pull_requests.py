@@ -18,6 +18,8 @@ from bitbucket_mcp.toolsets._common import (
     build_body,
     build_query,
     create_toolset_context_from_register_args,
+    request_repo_json,
+    request_repo_text,
 )
 
 if TYPE_CHECKING:
@@ -58,12 +60,8 @@ def register(
     ) -> dict[str, Any]:
         """List pull requests, optionally filtered by state."""
         query = build_query(page, pagelen, state=state, q=q, sort=sort)
-        return await ctx.request_json(
-            workspace,
-            "GET",
-            "/repositories/{ws}/{repo_slug}/pullrequests",
-            path_params={"repo_slug": repo_slug},
-            query=query,
+        return await request_repo_json(
+            ctx, workspace, "GET", repo_slug, "/pullrequests", query=query
         )
 
     async def get_pull_request(
@@ -84,33 +82,24 @@ def register(
     ) -> dict[str, Any]:
         """Get a pull request or one of its sub-resources."""
         if action == "details":
-            return await ctx.request_json(
-                workspace,
-                "GET",
-                "/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}",
-                path_params={"repo_slug": repo_slug, "pull_request_id": pull_request_id},
+            return await request_repo_json(
+                ctx, workspace, "GET", repo_slug, f"/pullrequests/{pull_request_id}"
             )
         if action in ("diff", "patch"):
-            text = await ctx.request_text(
+            text = await request_repo_text(
+                ctx,
                 workspace,
                 "GET",
-                "/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}/{action}",
-                path_params={
-                    "repo_slug": repo_slug,
-                    "pull_request_id": pull_request_id,
-                    "action": action,
-                },
+                repo_slug,
+                f"/pullrequests/{pull_request_id}/{action}",
             )
             return {"content": text, "format": action}
-        return await ctx.request_json(
+        return await request_repo_json(
+            ctx,
             workspace,
             "GET",
-            "/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}/{action}",
-            path_params={
-                "repo_slug": repo_slug,
-                "pull_request_id": pull_request_id,
-                "action": action,
-            },
+            repo_slug,
+            f"/pullrequests/{pull_request_id}/{action}",
         )
 
     ctx.register_tools(
@@ -142,12 +131,8 @@ def register(
             reviewers=([{"account_id": r} for r in reviewers] if reviewers else None),
             close_source_branch=close_source_branch,
         )
-        return await ctx.request_json(
-            workspace,
-            "POST",
-            "/repositories/{ws}/{repo_slug}/pullrequests",
-            path_params={"repo_slug": repo_slug},
-            body=body,
+        return await request_repo_json(
+            ctx, workspace, "POST", repo_slug, "/pullrequests", body=body
         )
 
     async def update_pull_request(
@@ -165,11 +150,12 @@ def register(
             description=description,
             destination=({"branch": {"name": destination_branch}} if destination_branch else None),
         )
-        return await ctx.request_json(
+        return await request_repo_json(
+            ctx,
             workspace,
             "PUT",
-            "/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}",
-            path_params={"repo_slug": repo_slug, "pull_request_id": pull_request_id},
+            repo_slug,
+            f"/pullrequests/{pull_request_id}",
             body=body,
         )
 
@@ -188,11 +174,12 @@ def register(
             message=message if message else None,
             close_source_branch=close_source_branch,
         )
-        return await ctx.request_json(
+        return await request_repo_json(
+            ctx,
             workspace,
             "POST",
-            "/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}/merge",
-            path_params={"repo_slug": repo_slug, "pull_request_id": pull_request_id},
+            repo_slug,
+            f"/pullrequests/{pull_request_id}/merge",
             body=body,
         )
 
@@ -203,11 +190,12 @@ def register(
         pull_request_id: int,
     ) -> dict[str, Any]:
         """Decline a pull request."""
-        return await ctx.request_json(
+        return await request_repo_json(
+            ctx,
             workspace,
             "POST",
-            "/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}/decline",
-            path_params={"repo_slug": repo_slug, "pull_request_id": pull_request_id},
+            repo_slug,
+            f"/pullrequests/{pull_request_id}/decline",
         )
 
     async def review_pull_request(
@@ -220,15 +208,12 @@ def register(
         """Approve/unapprove or request/unrequest changes on a pull request."""
         endpoint = "approve" if action in ("approve", "unapprove") else "request-changes"
         method = "POST" if action in ("approve", "request_changes") else "DELETE"
-        return await ctx.request_json(
+        return await request_repo_json(
+            ctx,
             workspace,
             method,
-            "/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}/{endpoint}",
-            path_params={
-                "repo_slug": repo_slug,
-                "pull_request_id": pull_request_id,
-                "endpoint": endpoint,
-            },
+            repo_slug,
+            f"/pullrequests/{pull_request_id}/{endpoint}",
         )
 
     async def add_pull_request_comment(
@@ -243,11 +228,12 @@ def register(
         body: dict[str, Any] = {"content": {"raw": content}}
         if inline is not None:
             body["inline"] = {"path": inline.path, "to": inline.to}
-        return await ctx.request_json(
+        return await request_repo_json(
+            ctx,
             workspace,
             "POST",
-            "/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}/comments",
-            path_params={"repo_slug": repo_slug, "pull_request_id": pull_request_id},
+            repo_slug,
+            f"/pullrequests/{pull_request_id}/comments",
             body=body,
         )
 

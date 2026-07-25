@@ -160,9 +160,7 @@ def register(
     ) -> dict[str, Any]:
         """List tags in a repository."""
         query = build_query(page, pagelen, q=q, sort=sort)
-        return await request_repo_json(
-            ctx, workspace, "GET", repo_slug, "/refs/tags", query=query
-        )
+        return await request_repo_json(ctx, workspace, "GET", repo_slug, "/refs/tags", query=query)
 
     ctx.register_tools(
         read=[
@@ -209,9 +207,7 @@ def register(
             name=name if name else None,
             workspace={"slug": target_workspace} if target_workspace else None,
         )
-        return await request_repo_json(
-            ctx, workspace, "POST", repo_slug, "/forks", body=body
-        )
+        return await request_repo_json(ctx, workspace, "POST", repo_slug, "/forks", body=body)
 
     async def create_commit(
         *,
