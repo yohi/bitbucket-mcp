@@ -1,18 +1,27 @@
 """issues ツールセット: イシューの参照・作成・更新・削除・コメント。"""
 
-from typing import Any, Literal
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
-from mcp.types import ToolAnnotations
 
 from bitbucket_mcp.client import BitbucketClient
-from bitbucket_mcp.pagination import page_params
-from bitbucket_mcp.toolsets._common import resolve_workspace
+from bitbucket_mcp.credentials import CredentialStore
+from bitbucket_mcp.oauth import OAuthClient
+from bitbucket_mcp.toolsets._common import (
+    DESTRUCTIVE,
+    READ,
+    WRITE,
+    AutoLoginController,
+    RegisterContext,
+    build_query,
+    wrap_tool,
+)
 
-_READ = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
-_WRITE = ToolAnnotations(openWorldHint=True)
-_DESTRUCTIVE = ToolAnnotations(destructiveHint=True, openWorldHint=True)
+if TYPE_CHECKING:
+    from bitbucket_mcp.auth import AuthProvider
 
 
 def register(
@@ -21,7 +30,19 @@ def register(
     *,
     read_only: bool,
     default_workspace: str | None = None,
+    auth_provider: AuthProvider | None = None,
+    oauth_client: OAuthClient | None = None,
+    store: CredentialStore | None = None,
+    controller: AutoLoginController | None = None,
 ) -> None:
+    ctx = RegisterContext(
+        mcp,
+        client,
+        read_only=read_only,
+        default_workspace=default_workspace,
+        wrap=wrap_tool(auth_provider, oauth_client, store, controller),
+    )
+
     async def list_issues(
         *,
         workspace: str | None = None,
@@ -32,15 +53,9 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List issues in a repository."""
-        ws = resolve_workspace(workspace, default_workspace)
-        query: dict[str, Any] = page_params(page, pagelen)
-        if q:
-            query["q"] = q
-        if sort:
-            query["sort"] = sort
-        return await client.request(
-            "GET", f"/repositories/{ws}/{repo_slug}/issues", query=query
-        )
+        ws = ctx.resolve_workspace(workspace)
+        query = build_query(page, pagelen, q=q, sort=sort)
+        return await client.request("GET", f"/repositories/{ws}/{repo_slug}/issues", query=query)
 
     async def get_issue(
         *,
@@ -50,14 +65,14 @@ def register(
         action: Literal["details", "comments", "changes"] = "details",
     ) -> dict[str, Any]:
         """Get an issue or its comments/changes."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         base = f"/repositories/{ws}/{repo_slug}/issues/{issue_id}"
         if action == "details":
             return await client.request("GET", base)
         return await client.request("GET", f"{base}/{action}")
 
-    mcp.add_tool(list_issues, annotations=_READ)
-    mcp.add_tool(get_issue, annotations=_READ)
+    ctx.tool(list_issues, READ)
+    ctx.tool(get_issue, READ)
 
     if read_only:
         return
@@ -73,7 +88,7 @@ def register(
         assignee: str | None = None,
     ) -> dict[str, Any]:
         """Create an issue."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         body: dict[str, Any] = {"title": title}
         if content:
             body["content"] = {"raw": content}
@@ -83,9 +98,7 @@ def register(
             body["priority"] = priority
         if assignee:
             body["assignee"] = {"account_id": assignee}
-        return await client.request(
-            "POST", f"/repositories/{ws}/{repo_slug}/issues", body=body
-        )
+        return await client.request("POST", f"/repositories/{ws}/{repo_slug}/issues", body=body)
 
     async def update_issue(
         *,
@@ -99,7 +112,7 @@ def register(
         assignee: str | None = None,
     ) -> dict[str, Any]:
         """Update an issue."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         body: dict[str, Any] = {}
         if title is not None:
             body["title"] = title
@@ -121,10 +134,8 @@ def register(
         *, workspace: str | None = None, repo_slug: str, issue_id: int
     ) -> dict[str, Any]:
         """Delete an issue. Destructive."""
-        ws = resolve_workspace(workspace, default_workspace)
-        return await client.request(
-            "DELETE", f"/repositories/{ws}/{repo_slug}/issues/{issue_id}"
-        )
+        ws = ctx.resolve_workspace(workspace)
+        return await client.request("DELETE", f"/repositories/{ws}/{repo_slug}/issues/{issue_id}")
 
     async def add_issue_comment(
         *,
@@ -134,14 +145,14 @@ def register(
         content: str,
     ) -> dict[str, Any]:
         """Add a comment to an issue."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         return await client.request(
             "POST",
             f"/repositories/{ws}/{repo_slug}/issues/{issue_id}/comments",
             body={"content": {"raw": content}},
         )
 
-    mcp.add_tool(create_issue, annotations=_WRITE)
-    mcp.add_tool(update_issue, annotations=_WRITE)
-    mcp.add_tool(delete_issue, annotations=_DESTRUCTIVE)
-    mcp.add_tool(add_issue_comment, annotations=_WRITE)
+    ctx.tool(create_issue, WRITE)
+    ctx.tool(update_issue, WRITE)
+    ctx.tool(delete_issue, DESTRUCTIVE)
+    ctx.tool(add_issue_comment, WRITE)

@@ -20,6 +20,19 @@ async def test_get_current_user(register_toolset, call_tool, httpx_mock: HTTPXMo
     assert structured == {"username": "alice", "account_id": "123"}
 
 
+async def test_authenticated_require_auth_tool_is_registered_and_callable(
+    register_toolset, call_tool, httpx_mock: HTTPXMock
+) -> None:
+    httpx_mock.add_response(url=f"{BASE}/user", json={"account_id": "123"})
+    mcp, _ = register_toolset(context.register)
+
+    tools = {tool.name for tool in await mcp.list_tools()}
+    _, structured = await call_tool(mcp, "get_current_user", {})
+
+    assert "get_current_user" in tools
+    assert structured == {"account_id": "123"}
+
+
 async def test_list_workspaces_clamps_pagelen(
     register_toolset, call_tool, httpx_mock: HTTPXMock
 ) -> None:

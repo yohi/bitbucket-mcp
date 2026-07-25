@@ -1,18 +1,27 @@
 """pipelines ツールセット: パイプラインの参照・実行・停止。"""
 
-from typing import Any, Literal
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
-from mcp.types import ToolAnnotations
 
 from bitbucket_mcp.client import BitbucketClient
+from bitbucket_mcp.credentials import CredentialStore
 from bitbucket_mcp.models import PipelineTarget
-from bitbucket_mcp.pagination import page_params
-from bitbucket_mcp.toolsets._common import resolve_workspace
+from bitbucket_mcp.oauth import OAuthClient
+from bitbucket_mcp.toolsets._common import (
+    READ,
+    WRITE,
+    AutoLoginController,
+    RegisterContext,
+    build_query,
+    wrap_tool,
+)
 
-_READ = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
-_WRITE = ToolAnnotations(openWorldHint=True)
+if TYPE_CHECKING:
+    from bitbucket_mcp.auth import AuthProvider
 
 
 def register(
@@ -21,7 +30,19 @@ def register(
     *,
     read_only: bool,
     default_workspace: str | None = None,
+    auth_provider: AuthProvider | None = None,
+    oauth_client: OAuthClient | None = None,
+    store: CredentialStore | None = None,
+    controller: AutoLoginController | None = None,
 ) -> None:
+    ctx = RegisterContext(
+        mcp,
+        client,
+        read_only=read_only,
+        default_workspace=default_workspace,
+        wrap=wrap_tool(auth_provider, oauth_client, store, controller),
+    )
+
     async def list_pipelines(
         *,
         workspace: str | None = None,
@@ -31,10 +52,8 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List pipeline runs in a repository."""
-        ws = resolve_workspace(workspace, default_workspace)
-        query: dict[str, Any] = page_params(page, pagelen)
-        if sort:
-            query["sort"] = sort
+        ws = ctx.resolve_workspace(workspace)
+        query = build_query(page, pagelen, sort=sort)
         return await client.request(
             "GET", f"/repositories/{ws}/{repo_slug}/pipelines/", query=query
         )
@@ -50,7 +69,7 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """Get a pipeline, its steps, or a step log."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         base = f"/repositories/{ws}/{repo_slug}/pipelines/{pipeline_uuid}"
         if action == "details":
             return await client.request("GET", base)
@@ -58,17 +77,15 @@ def register(
             return await client.request(
                 "GET",
                 f"{base}/steps",
-                query=page_params(page, pagelen),
+                query=build_query(page, pagelen),
             )
         if step_uuid is None:
             raise ToolError("action='step_log' には step_uuid が必要です。")
-        text = await client.request_text(
-            "GET", f"{base}/steps/{step_uuid}/log"
-        )
+        text = await client.request_text("GET", f"{base}/steps/{step_uuid}/log")
         return {"content": text}
 
-    mcp.add_tool(list_pipelines, annotations=_READ)
-    mcp.add_tool(get_pipeline, annotations=_READ)
+    ctx.tool(list_pipelines, READ)
+    ctx.tool(get_pipeline, READ)
 
     if read_only:
         return
@@ -81,7 +98,7 @@ def register(
         variables: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Trigger a pipeline run for a branch or tag."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         target_body: dict[str, Any] = {
             "ref_type": target.ref_type,
             "ref_name": target.ref_name,
@@ -92,19 +109,17 @@ def register(
         body: dict[str, Any] = {"target": target_body}
         if variables:
             body["variables"] = variables
-        return await client.request(
-            "POST", f"/repositories/{ws}/{repo_slug}/pipelines/", body=body
-        )
+        return await client.request("POST", f"/repositories/{ws}/{repo_slug}/pipelines/", body=body)
 
     async def stop_pipeline(
         *, workspace: str | None = None, repo_slug: str, pipeline_uuid: str
     ) -> dict[str, Any]:
         """Stop a running pipeline."""
-        ws = resolve_workspace(workspace, default_workspace)
+        ws = ctx.resolve_workspace(workspace)
         return await client.request(
             "POST",
             f"/repositories/{ws}/{repo_slug}/pipelines/{pipeline_uuid}/stopPipeline",
         )
 
-    mcp.add_tool(run_pipeline, annotations=_WRITE)
-    mcp.add_tool(stop_pipeline, annotations=_WRITE)
+    ctx.tool(run_pipeline, WRITE)
+    ctx.tool(stop_pipeline, WRITE)

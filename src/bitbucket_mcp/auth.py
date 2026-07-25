@@ -42,13 +42,16 @@ class StaticAuthProvider:
         self._header = header
 
     async def authorization_header(self) -> str:
+        """静的認証ではヘッダーを即座に返す。"""
         return self._header
 
     async def refresh(self) -> None:
+        """静的認証ではリフレッシュ処理が不要。"""
         return None
 
     async def aclose(self) -> None:
-        pass
+        """静的認証ではクローズ処理が不要。"""
+        return None
 
     def is_authenticated(self) -> bool:
         return True
@@ -74,6 +77,9 @@ class OAuthAuthProvider:
     def is_authenticated(self) -> bool:
         creds = self._store.load()
         return creds is not None and creds.client_id == self._client_id
+
+    async def aclose(self) -> None:
+        await self._oauth_client.aclose()
 
     async def authorization_header(self) -> str:
         creds = self._store.load()
@@ -121,8 +127,6 @@ class OAuthAuthProvider:
                 _locked_refresh
             )
 
-    async def aclose(self) -> None:
-        await self._oauth_client.aclose()
 
     def _is_near_expiry(self, creds: StoredCredentials) -> bool:
         if creds.expires_at <= 0:
