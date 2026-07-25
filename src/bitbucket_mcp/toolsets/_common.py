@@ -186,6 +186,10 @@ def build_query(
     return query
 
 
+def build_body(**fields: Any) -> dict[str, Any]:
+    return {key: value for key, value in fields.items() if value is not None}
+
+
 class RegisterContext:
     """toolset 登録の共通コンテキスト。"""
 
@@ -258,4 +262,26 @@ def create_toolset_context(
         read_only=read_only,
         default_workspace=default_workspace,
         wrap=wrap_tool(auth_provider, oauth_client, store, controller),
+    )
+
+
+def create_toolset_context_from_register_args(
+    mcp: Any,
+    client: Any,
+    read_only: bool,
+    default_workspace: str | None = None,
+    auth_provider: AuthProvider | None = None,
+    oauth_client: OAuthClient | None = None,
+    store: CredentialStore | None = None,
+    controller: AutoLoginController | None = None,
+) -> RegisterContext:
+    return create_toolset_context(
+        mcp,
+        client,
+        read_only=read_only,
+        default_workspace=default_workspace,
+        auth_provider=auth_provider,
+        oauth_client=oauth_client,
+        store=store,
+        controller=controller,
     )

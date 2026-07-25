@@ -15,8 +15,9 @@ from bitbucket_mcp.toolsets._common import (
     READ,
     WRITE,
     AutoLoginController,
+    build_body,
     build_query,
-    create_toolset_context,
+    create_toolset_context_from_register_args,
 )
 
 if TYPE_CHECKING:
@@ -34,15 +35,15 @@ def register(
     store: CredentialStore | None = None,
     controller: AutoLoginController | None = None,
 ) -> None:
-    ctx = create_toolset_context(
+    ctx = create_toolset_context_from_register_args(
         mcp,
         client,
-        read_only=read_only,
-        default_workspace=default_workspace,
-        auth_provider=auth_provider,
-        oauth_client=oauth_client,
-        store=store,
-        controller=controller,
+        read_only,
+        default_workspace,
+        auth_provider,
+        oauth_client,
+        store,
+        controller,
     )
 
     async def list_pull_requests(
@@ -108,18 +109,16 @@ def register(
     ) -> dict[str, Any]:
         """Create a pull request."""
         ws = ctx.resolve_workspace(workspace)
-        body: dict[str, Any] = {
-            "title": title,
-            "source": {"branch": {"name": source_branch}},
-        }
-        if destination_branch is not None:
-            body["destination"] = {"branch": {"name": destination_branch}}
-        if description:
-            body["description"] = description
-        if reviewers:
-            body["reviewers"] = [{"account_id": r} for r in reviewers]
-        if close_source_branch is not None:
-            body["close_source_branch"] = close_source_branch
+        body = build_body(
+            title=title,
+            source={"branch": {"name": source_branch}},
+            destination=(
+                {"branch": {"name": destination_branch}} if destination_branch is not None else None
+            ),
+            description=description if description else None,
+            reviewers=([{"account_id": r} for r in reviewers] if reviewers else None),
+            close_source_branch=close_source_branch,
+        )
         return await client.request(
             "POST", f"/repositories/{ws}/{repo_slug}/pullrequests", body=body
         )
@@ -135,13 +134,11 @@ def register(
     ) -> dict[str, Any]:
         """Update a pull request's title, description, or destination."""
         ws = ctx.resolve_workspace(workspace)
-        body: dict[str, Any] = {}
-        if title is not None:
-            body["title"] = title
-        if description is not None:
-            body["description"] = description
-        if destination_branch:
-            body["destination"] = {"branch": {"name": destination_branch}}
+        body = build_body(
+            title=title,
+            description=description,
+            destination=({"branch": {"name": destination_branch}} if destination_branch else None),
+        )
         return await client.request(
             "PUT",
             f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}",
@@ -159,13 +156,11 @@ def register(
     ) -> dict[str, Any]:
         """Merge a pull request. Destructive."""
         ws = ctx.resolve_workspace(workspace)
-        body: dict[str, Any] = {}
-        if merge_strategy:
-            body["merge_strategy"] = merge_strategy
-        if message:
-            body["message"] = message
-        if close_source_branch is not None:
-            body["close_source_branch"] = close_source_branch
+        body = build_body(
+            merge_strategy=merge_strategy if merge_strategy else None,
+            message=message if message else None,
+            close_source_branch=close_source_branch,
+        )
         return await client.request(
             "POST",
             f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}/merge",

@@ -13,7 +13,7 @@ from bitbucket_mcp.oauth import OAuthClient
 from bitbucket_mcp.toolsets._common import (
     WRITE,
     AutoLoginController,
-    create_toolset_context,
+    create_toolset_context_from_register_args,
 )
 
 if TYPE_CHECKING:
@@ -31,15 +31,15 @@ def register(
     store: CredentialStore | None = None,
     controller: AutoLoginController | None = None,
 ) -> None:
-    ctx = create_toolset_context(
+    ctx = create_toolset_context_from_register_args(
         mcp,
         client,
-        read_only=read_only,
-        default_workspace=default_workspace,
-        auth_provider=auth_provider,
-        oauth_client=oauth_client,
-        store=store,
-        controller=controller,
+        read_only,
+        default_workspace,
+        auth_provider,
+        oauth_client,
+        store,
+        controller,
     )
 
     async def bitbucket_api(

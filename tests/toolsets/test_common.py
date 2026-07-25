@@ -11,8 +11,29 @@ from bitbucket_mcp.oauth import OAuthClient
 from bitbucket_mcp.toolsets._common import (  # pyright: ignore[reportPrivateUsage]
     AutoLoginController,
     _perform_auto_login,  # pyright: ignore[reportPrivateUsage]
+    build_body,
+    create_toolset_context_from_register_args,
     require_auth,
 )
+
+
+def test_build_body_omits_none_values() -> None:
+    assert build_body(title="Bug", description=None) == {"title": "Bug"}
+
+
+def test_create_toolset_context_from_register_args_preserves_options() -> None:
+    client = object()
+    mcp = object()
+    ctx = create_toolset_context_from_register_args(
+        mcp,
+        client,
+        True,
+        "workspace",
+    )
+    assert ctx.mcp is mcp
+    assert ctx.client is client
+    assert ctx.read_only is True
+    assert ctx.default_workspace == "workspace"
 
 
 async def test_require_auth_passes_when_authenticated() -> None:

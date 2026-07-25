@@ -15,8 +15,9 @@ from bitbucket_mcp.toolsets._common import (
     READ,
     WRITE,
     AutoLoginController,
+    build_body,
     build_query,
-    create_toolset_context,
+    create_toolset_context_from_register_args,
 )
 
 if TYPE_CHECKING:
@@ -34,15 +35,15 @@ def register(
     store: CredentialStore | None = None,
     controller: AutoLoginController | None = None,
 ) -> None:
-    ctx = create_toolset_context(
+    ctx = create_toolset_context_from_register_args(
         mcp,
         client,
-        read_only=read_only,
-        default_workspace=default_workspace,
-        auth_provider=auth_provider,
-        oauth_client=oauth_client,
-        store=store,
-        controller=controller,
+        read_only,
+        default_workspace,
+        auth_provider,
+        oauth_client,
+        store,
+        controller,
     )
 
     async def list_repositories(
@@ -174,9 +175,11 @@ def register(
     ) -> dict[str, Any]:
         """Create a new repository."""
         ws = ctx.resolve_workspace(workspace)
-        body: dict[str, Any] = {"scm": scm, "is_private": is_private}
-        if project_key:
-            body["project"] = {"key": project_key}
+        body = build_body(
+            scm=scm,
+            is_private=is_private,
+            project={"key": project_key} if project_key else None,
+        )
         return await client.request("POST", f"/repositories/{ws}/{repo_slug}", body=body)
 
     async def delete_repository(*, workspace: str | None = None, repo_slug: str) -> dict[str, Any]:
@@ -193,11 +196,10 @@ def register(
     ) -> dict[str, Any]:
         """Fork a repository."""
         ws = ctx.resolve_workspace(workspace)
-        body: dict[str, Any] = {}
-        if name:
-            body["name"] = name
-        if target_workspace:
-            body["workspace"] = {"slug": target_workspace}
+        body = build_body(
+            name=name if name else None,
+            workspace={"slug": target_workspace} if target_workspace else None,
+        )
         return await client.request("POST", f"/repositories/{ws}/{repo_slug}/forks", body=body)
 
     async def create_commit(
