@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import getpass
-import os
 import sys
 import time
 import webbrowser
@@ -28,6 +27,7 @@ from bitbucket_mcp.oauth import (
     generate_state,
 )
 from bitbucket_mcp.server import create_server
+from bitbucket_mcp.toolsets._common import _display_available  # pyright: ignore[reportPrivateUsage]
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -67,12 +67,6 @@ def _oauth_config(
         settings.oauth_client_secret,
         settings.oauth_callback_port,
     )
-
-
-def _display_available() -> bool:
-    if sys.platform in ("win32", "darwin"):
-        return True
-    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
 def _format_status(creds: StoredCredentials | None) -> str:
@@ -154,6 +148,9 @@ async def _run_login(settings: Settings, manual: bool, port: int | None) -> int:
     except httpx.HTTPStatusError as exc:
         print(f"トークン交換に失敗しました: {exc.response.status_code}", file=sys.stderr)
         return 1
+    except httpx.RequestError as exc:
+        print(f"ネットワークエラー: {exc}", file=sys.stderr)
+        return 1
     finally:
         if server is not None:
             await server.aclose()
@@ -192,7 +189,8 @@ async def _async_main(argv: list[str] | None = None) -> int:
         return 0
 
     try:
-        resolve_auth_provider(settings)
+        _provider = resolve_auth_provider(settings)
+        await _provider.aclose()
         mcp = create_server(settings, host=args.host, port=args.port)
     except (AuthConfigError, ValidationError) as exc:
         print(f"設定エラー: {exc}", file=sys.stderr)

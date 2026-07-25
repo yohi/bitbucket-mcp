@@ -11,16 +11,14 @@ import urllib.parse
 import webbrowser
 from collections.abc import Awaitable, Callable
 from functools import wraps
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import Any, TypeVar
 
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
+from bitbucket_mcp.auth import AuthProvider
 from bitbucket_mcp.credentials import CredentialStore
 from bitbucket_mcp.oauth import OAuthCallbackServer, OAuthClient, OAuthFlowError, generate_state
-
-if TYPE_CHECKING:
-    from bitbucket_mcp.auth import AuthProvider
 
 T = TypeVar("T")
 logger = logging.getLogger(__name__)
@@ -155,11 +153,13 @@ def wrap_tool(
     controller: AutoLoginController | None = None,
 ) -> Callable[[Callable[..., Awaitable[T] | T]], Callable[..., Awaitable[str | T]]]:
     """toolset 共通の認証ラッパーを生成する。"""
-    from bitbucket_mcp.auth import StaticAuthProvider
-
+    if auth_provider is None:
+        raise ToolError(
+            "auth_provider が指定されていません。BITBUCKET_TOKEN 等を設定してください。"
+        )
     resolved_controller = controller or AutoLoginController()
     return require_auth(
-        auth_provider or StaticAuthProvider("Bearer test-token"),
+        auth_provider,
         resolved_controller,
         oauth_client,
         store,

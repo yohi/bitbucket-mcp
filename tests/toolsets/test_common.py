@@ -31,6 +31,7 @@ def test_create_toolset_context_from_register_args_preserves_options() -> None:
         client,
         True,
         "workspace",
+        StaticAuthProvider("Bearer test-token"),
     )
     assert ctx.mcp is mcp
     assert ctx.client is client
@@ -63,7 +64,9 @@ async def test_register_context_request_json_resolves_workspace() -> None:
             calls.append((method, path, query, body, form))
             return {"ok": True}
 
-    ctx = create_toolset_context_from_register_args(object(), _Client(), True, "ws")
+    ctx = create_toolset_context_from_register_args(
+        object(), _Client(), True, "ws", StaticAuthProvider("Bearer test-token")
+    )
     result = await ctx.request_json(
         "workspace",
         "GET",
@@ -89,7 +92,9 @@ async def test_register_context_request_text_resolves_workspace() -> None:
             calls.append((method, path, query))
             return "text"
 
-    ctx = create_toolset_context_from_register_args(object(), _Client(), True, "ws")
+    ctx = create_toolset_context_from_register_args(
+        object(), _Client(), True, "ws", StaticAuthProvider("Bearer test-token")
+    )
     result = await ctx.request_text(
         "workspace",
         "GET",
