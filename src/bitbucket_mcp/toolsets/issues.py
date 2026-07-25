@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
@@ -46,6 +47,7 @@ def register(
         store,
         controller,
     )
+    repo_json = partial(request_repo_json, ctx)
 
     async def list_issues(
         *,
@@ -58,7 +60,7 @@ def register(
     ) -> dict[str, Any]:
         """List issues in a repository."""
         query = build_query(page, pagelen, q=q, sort=sort)
-        return await request_repo_json(ctx, workspace, "GET", repo_slug, "/issues", query=query)
+        return await repo_json(workspace, "GET", repo_slug, "/issues", query=query)
 
     async def get_issue(
         *,
@@ -69,10 +71,8 @@ def register(
     ) -> dict[str, Any]:
         """Get an issue or its comments/changes."""
         if action == "details":
-            return await request_repo_json(ctx, workspace, "GET", repo_slug, f"/issues/{issue_id}")
-        return await request_repo_json(
-            ctx, workspace, "GET", repo_slug, f"/issues/{issue_id}/{action}"
-        )
+            return await repo_json(workspace, "GET", repo_slug, f"/issues/{issue_id}")
+        return await repo_json(workspace, "GET", repo_slug, f"/issues/{issue_id}/{action}")
 
     ctx.register_tools(
         read=[(list_issues, READ), (get_issue, READ)],
@@ -96,7 +96,7 @@ def register(
             priority=priority,
             assignee={"account_id": assignee} if assignee else None,
         )
-        return await request_repo_json(ctx, workspace, "POST", repo_slug, "/issues", body=body)
+        return await repo_json(workspace, "POST", repo_slug, "/issues", body=body)
 
     async def update_issue(
         *,
@@ -119,15 +119,13 @@ def register(
         )
         if not body:
             raise ToolError("update_issue には少なくとも1つの更新項目が必要です。")
-        return await request_repo_json(
-            ctx, workspace, "PUT", repo_slug, f"/issues/{issue_id}", body=body
-        )
+        return await repo_json(workspace, "PUT", repo_slug, f"/issues/{issue_id}", body=body)
 
     async def delete_issue(
         *, workspace: str | None = None, repo_slug: str, issue_id: int
     ) -> dict[str, Any]:
         """Delete an issue. Destructive."""
-        return await request_repo_json(ctx, workspace, "DELETE", repo_slug, f"/issues/{issue_id}")
+        return await repo_json(workspace, "DELETE", repo_slug, f"/issues/{issue_id}")
 
     async def add_issue_comment(
         *,
@@ -137,8 +135,7 @@ def register(
         content: str,
     ) -> dict[str, Any]:
         """Add a comment to an issue."""
-        return await request_repo_json(
-            ctx,
+        return await repo_json(
             workspace,
             "POST",
             repo_slug,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
@@ -47,6 +48,8 @@ def register(
         store,
         controller,
     )
+    repo_json = partial(request_repo_json, ctx)
+    repo_text = partial(request_repo_text, ctx)
 
     async def list_pull_requests(
         *,
@@ -60,9 +63,7 @@ def register(
     ) -> dict[str, Any]:
         """List pull requests, optionally filtered by state."""
         query = build_query(page, pagelen, state=state, q=q, sort=sort)
-        return await request_repo_json(
-            ctx, workspace, "GET", repo_slug, "/pullrequests", query=query
-        )
+        return await repo_json(workspace, "GET", repo_slug, "/pullrequests", query=query)
 
     async def get_pull_request(
         *,
@@ -82,20 +83,16 @@ def register(
     ) -> dict[str, Any]:
         """Get a pull request or one of its sub-resources."""
         if action == "details":
-            return await request_repo_json(
-                ctx, workspace, "GET", repo_slug, f"/pullrequests/{pull_request_id}"
-            )
+            return await repo_json(workspace, "GET", repo_slug, f"/pullrequests/{pull_request_id}")
         if action in ("diff", "patch"):
-            text = await request_repo_text(
-                ctx,
+            text = await repo_text(
                 workspace,
                 "GET",
                 repo_slug,
                 f"/pullrequests/{pull_request_id}/{action}",
             )
             return {"content": text, "format": action}
-        return await request_repo_json(
-            ctx,
+        return await repo_json(
             workspace,
             "GET",
             repo_slug,
@@ -131,9 +128,7 @@ def register(
             reviewers=([{"account_id": r} for r in reviewers] if reviewers else None),
             close_source_branch=close_source_branch,
         )
-        return await request_repo_json(
-            ctx, workspace, "POST", repo_slug, "/pullrequests", body=body
-        )
+        return await repo_json(workspace, "POST", repo_slug, "/pullrequests", body=body)
 
     async def update_pull_request(
         *,
@@ -150,8 +145,7 @@ def register(
             description=description,
             destination=({"branch": {"name": destination_branch}} if destination_branch else None),
         )
-        return await request_repo_json(
-            ctx,
+        return await repo_json(
             workspace,
             "PUT",
             repo_slug,
@@ -174,8 +168,7 @@ def register(
             message=message if message else None,
             close_source_branch=close_source_branch,
         )
-        return await request_repo_json(
-            ctx,
+        return await repo_json(
             workspace,
             "POST",
             repo_slug,
@@ -190,8 +183,7 @@ def register(
         pull_request_id: int,
     ) -> dict[str, Any]:
         """Decline a pull request."""
-        return await request_repo_json(
-            ctx,
+        return await repo_json(
             workspace,
             "POST",
             repo_slug,
@@ -208,8 +200,7 @@ def register(
         """Approve/unapprove or request/unrequest changes on a pull request."""
         endpoint = "approve" if action in ("approve", "unapprove") else "request-changes"
         method = "POST" if action in ("approve", "request_changes") else "DELETE"
-        return await request_repo_json(
-            ctx,
+        return await repo_json(
             workspace,
             method,
             repo_slug,
@@ -228,8 +219,7 @@ def register(
         body: dict[str, Any] = {"content": {"raw": content}}
         if inline is not None:
             body["inline"] = {"path": inline.path, "to": inline.to}
-        return await request_repo_json(
-            ctx,
+        return await repo_json(
             workspace,
             "POST",
             repo_slug,

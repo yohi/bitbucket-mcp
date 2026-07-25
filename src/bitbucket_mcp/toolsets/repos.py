@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
@@ -47,6 +48,8 @@ def register(
         store,
         controller,
     )
+    repo_json = partial(request_repo_json, ctx)
+    repo_text = partial(request_repo_text, ctx)
 
     async def list_repositories(
         *,
@@ -68,7 +71,7 @@ def register(
 
     async def get_repository(*, workspace: str | None = None, repo_slug: str) -> dict[str, Any]:
         """Get a single repository's metadata."""
-        return await request_repo_json(ctx, workspace, "GET", repo_slug, "")
+        return await repo_json(workspace, "GET", repo_slug, "")
 
     async def get_file_or_directory(
         *,
@@ -80,8 +83,7 @@ def register(
     ) -> dict[str, Any]:
         """Get file contents or a directory listing at a commit."""
         query = build_query(page)
-        text = await request_repo_text(
-            ctx,
+        text = await repo_text(
             workspace,
             "GET",
             repo_slug,
@@ -106,8 +108,7 @@ def register(
         if revision:
             path_template += "/{revision}"
             path_params["revision"] = revision
-        return await request_repo_json(
-            ctx,
+        return await repo_json(
             workspace,
             "GET",
             repo_slug,
@@ -119,7 +120,7 @@ def register(
         *, workspace: str | None = None, repo_slug: str, commit: str
     ) -> dict[str, Any]:
         """Get a single commit by hash."""
-        return await request_repo_json(ctx, workspace, "GET", repo_slug, f"/commit/{commit}")
+        return await repo_json(workspace, "GET", repo_slug, f"/commit/{commit}")
 
     async def get_diff(
         *,
@@ -130,8 +131,8 @@ def register(
     ) -> dict[str, Any]:
         """Get a diff, diffstat, or patch for a commit spec (e.g. 'a..b')."""
         if action == "diffstat":
-            return await request_repo_json(ctx, workspace, "GET", repo_slug, f"/diffstat/{spec}")
-        text = await request_repo_text(ctx, workspace, "GET", repo_slug, f"/{action}/{spec}")
+            return await repo_json(workspace, "GET", repo_slug, f"/diffstat/{spec}")
+        text = await repo_text(workspace, "GET", repo_slug, f"/{action}/{spec}")
         return {"content": text, "format": action}
 
     async def list_branches(
@@ -145,9 +146,7 @@ def register(
     ) -> dict[str, Any]:
         """List branches in a repository."""
         query = build_query(page, pagelen, q=q, sort=sort)
-        return await request_repo_json(
-            ctx, workspace, "GET", repo_slug, "/refs/branches", query=query
-        )
+        return await repo_json(workspace, "GET", repo_slug, "/refs/branches", query=query)
 
     async def list_tags(
         *,
@@ -160,7 +159,7 @@ def register(
     ) -> dict[str, Any]:
         """List tags in a repository."""
         query = build_query(page, pagelen, q=q, sort=sort)
-        return await request_repo_json(ctx, workspace, "GET", repo_slug, "/refs/tags", query=query)
+        return await repo_json(workspace, "GET", repo_slug, "/refs/tags", query=query)
 
     ctx.register_tools(
         read=[
@@ -189,11 +188,11 @@ def register(
             is_private=is_private,
             project={"key": project_key} if project_key else None,
         )
-        return await request_repo_json(ctx, workspace, "POST", repo_slug, "", body=body)
+        return await repo_json(workspace, "POST", repo_slug, "", body=body)
 
     async def delete_repository(*, workspace: str | None = None, repo_slug: str) -> dict[str, Any]:
         """Delete a repository. Destructive."""
-        return await request_repo_json(ctx, workspace, "DELETE", repo_slug, "")
+        return await repo_json(workspace, "DELETE", repo_slug, "")
 
     async def fork_repository(
         *,
@@ -207,7 +206,7 @@ def register(
             name=name if name else None,
             workspace={"slug": target_workspace} if target_workspace else None,
         )
-        return await request_repo_json(ctx, workspace, "POST", repo_slug, "/forks", body=body)
+        return await repo_json(workspace, "POST", repo_slug, "/forks", body=body)
 
     async def create_commit(
         *,
@@ -228,14 +227,13 @@ def register(
             form["branch"] = branch
         for file_path, content in files.items():
             form[file_path] = content
-        return await request_repo_json(ctx, workspace, "POST", repo_slug, "/src", form=form)
+        return await repo_json(workspace, "POST", repo_slug, "/src", form=form)
 
     async def create_branch(
         *, workspace: str | None = None, repo_slug: str, name: str, target: str
     ) -> dict[str, Any]:
         """Create a branch pointing at a target commit hash."""
-        return await request_repo_json(
-            ctx,
+        return await repo_json(
             workspace,
             "POST",
             repo_slug,
@@ -247,16 +245,13 @@ def register(
         *, workspace: str | None = None, repo_slug: str, name: str
     ) -> dict[str, Any]:
         """Delete a branch. Destructive."""
-        return await request_repo_json(
-            ctx, workspace, "DELETE", repo_slug, f"/refs/branches/{name}"
-        )
+        return await repo_json(workspace, "DELETE", repo_slug, f"/refs/branches/{name}")
 
     async def create_tag(
         *, workspace: str | None = None, repo_slug: str, name: str, target: str
     ) -> dict[str, Any]:
         """Create a tag pointing at a target commit hash."""
-        return await request_repo_json(
-            ctx,
+        return await repo_json(
             workspace,
             "POST",
             repo_slug,
