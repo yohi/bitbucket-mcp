@@ -92,3 +92,94 @@ def test_manual_login_rejects_mismatched_state(
 
     assert entry.main(["auth", "login", "--manual"]) == 1
     assert "CSRF" in capsys.readouterr().err
+
+
+def test_browser_login_times_out_after_300_seconds_and_cleans_up(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("BITBUCKET_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("BITBUCKET_OAUTH_CLIENT_ID", "client-id")
+    monkeypatch.setenv("BITBUCKET_OAUTH_CLIENT_SECRET", "client-secret")
+    monkeypatch.setattr(entry, "_display_available", lambda: True)
+
+    def fake_browser_open(_url: str) -> bool:
+        return True
+
+    monkeypatch.setattr(entry.webbrowser, "open", fake_browser_open)
+    callback_closed = False
+    client_closed = False
+    captured_timeout: float | None = None
+
+    class FakeOAuthClient:
+        def __init__(
+            self,
+            *,
+            base_url: str,
+            client_id: str,
+            client_secret: str,
+            redirect_uri: str,
+            scopes: list[str],
+        ) -> None:
+            del base_url, client_secret, redirect_uri, scopes
+            self.client_id = client_id
+
+        def build_authorize_url(self, state: str) -> str:
+            return f"https://bitbucket.org/authorize?state={state}"
+
+        async def exchange_code(self, code: str) -> None:
+            raise AssertionError(f"token exchange must not run: {code}")
+
+        async def aclose(self) -> None:
+            nonlocal client_closed
+            client_closed = True
+
+    class FakeCallbackServer:
+        def __init__(self, port: int, *, expected_state: str) -> None:
+            del expected_state
+            self.port = port
+
+        async def start(self) -> None:
+            return None
+
+        async def wait_callback(self) -> tuple[str, str | None]:
+            raise TimeoutError
+
+        async def aclose(self) -> None:
+            nonlocal callback_closed
+            callback_closed = True
+
+    class FakeTimeout:
+        def __init__(self, timeout: float) -> None:
+            nonlocal captured_timeout
+            captured_timeout = timeout
+
+        async def __aenter__(self) -> "FakeTimeout":
+            return self
+
+        async def __aexit__(self, exc_type: object, exc: object, tb: object) -> bool:
+            del exc_type, exc, tb
+            raise TimeoutError
+
+    def forbidden_wait_for(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise AssertionError("caller-owned timeout must not use asyncio.wait_for")
+
+    def fake_timeout(timeout: float) -> FakeTimeout:
+        nonlocal captured_timeout
+        captured_timeout = timeout
+        return FakeTimeout(timeout)
+
+    monkeypatch.setattr(entry, "OAuthClient", FakeOAuthClient)
+    monkeypatch.setattr(entry, "OAuthCallbackServer", FakeCallbackServer)
+    monkeypatch.setattr(entry.asyncio, "wait_for", forbidden_wait_for)
+    monkeypatch.setattr(entry.asyncio, "timeout", fake_timeout)
+
+    assert entry.main(["auth", "login"]) == 1
+    captured = capsys.readouterr()
+    assert "タイムアウト" in captured.err
+    assert "auth login" in captured.err
+    assert captured_timeout == 300
+    assert callback_closed is True
+    assert client_closed is True

@@ -5,7 +5,6 @@ import base64
 import time
 from typing import TYPE_CHECKING, Protocol
 
-import anyio
 from pydantic import SecretStr
 
 from bitbucket_mcp.credentials import (
@@ -123,10 +122,7 @@ class OAuthAuthProvider:
                     self._store.save(new_creds)
                     return new_creds
 
-            await anyio.to_thread.run_sync(  # pyright: ignore[reportUnknownMemberType, reportAttributeAccessIssue]
-                _locked_refresh
-            )
-
+            await asyncio.to_thread(_locked_refresh)
 
     def _is_near_expiry(self, creds: StoredCredentials) -> bool:
         if creds.expires_at <= 0:
@@ -167,7 +163,10 @@ def resolve_auth_provider(settings: Settings) -> AuthProvider:
     )
 
 
-def _build_oauth_provider(settings: Settings, store: CredentialStore) -> OAuthAuthProvider:
+def _build_oauth_provider(
+    settings: Settings,
+    store: CredentialStore,
+) -> OAuthAuthProvider:
     client_id = settings.oauth_client_id
     client_secret = settings.oauth_client_secret
     if client_id is None or client_secret is None:

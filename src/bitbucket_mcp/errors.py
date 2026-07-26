@@ -1,8 +1,9 @@
 """Bitbucket のエラー JSON を MCP ToolError に変換する。"""
 
-from typing import Any, cast
+from typing import Any
 
 from mcp.server.fastmcp.exceptions import ToolError
+from pydantic import TypeAdapter, ValidationError
 
 _STATUS_HINTS: dict[int, str] = {
     401: "認証に失敗しました。トークンを確認してください。",
@@ -11,6 +12,9 @@ _STATUS_HINTS: dict[int, str] = {
     409: "競合が発生しました (マージ衝突など)。",
     429: "レート制限を超過しました。しばらく待って再試行してください。",
 }
+
+
+_ERROR_OBJECT = TypeAdapter(dict[str, object])
 
 
 def _valid_retry_after(retry_after: str | None) -> str | None:
@@ -36,9 +40,12 @@ def build_tool_error(
     if payload:
         err = payload.get("error")
         if isinstance(err, dict):
-            err_dict = cast(dict[str, Any], err)
-            message = str(err_dict.get("message", ""))
-            detail = str(err_dict.get("detail", ""))
+            try:
+                error_payload = _ERROR_OBJECT.validate_python(err, strict=True)
+            except ValidationError:
+                error_payload = {}
+            message = str(error_payload.get("message", ""))
+            detail = str(error_payload.get("detail", ""))
     text = f"Bitbucket API {status_code}: {message or 'error'}"
     if detail:
         text += f" — {detail}"

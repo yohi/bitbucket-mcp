@@ -9,11 +9,11 @@ from mcp.server.fastmcp.exceptions import ToolError
 from bitbucket_mcp.auth import AuthConfigError, AuthProvider, StaticAuthProvider
 from bitbucket_mcp.credentials import CredentialStore
 from bitbucket_mcp.oauth import OAuthClient
-from bitbucket_mcp.toolsets._common import (  # pyright: ignore[reportPrivateUsage]
+from bitbucket_mcp.toolsets._common import (
     AutoLoginController,
-    _perform_auto_login,  # pyright: ignore[reportPrivateUsage]
     build_body,
     create_toolset_context_from_register_args,
+    perform_auto_login,
     request_repo_json,
     request_repo_text,
     require_auth,
@@ -176,7 +176,13 @@ async def test_request_repo_json_preserves_braces_in_suffix() -> None:
             assert workspace is not None
             return workspace
 
-    await request_repo_json(_Ctx(), "workspace", "GET", "repo", "/src/abc/{literal}.txt")
+    await request_repo_json(
+        _Ctx(),
+        "workspace",
+        "GET",
+        "repo",
+        "/src/abc/{literal}.txt",
+    )
     assert calls == ["/repositories/workspace/repo/src/abc/{literal}.txt"]
 
 
@@ -195,7 +201,13 @@ async def test_request_repo_text_preserves_braces_in_suffix() -> None:
             assert workspace is not None
             return workspace
 
-    await request_repo_text(_Ctx(), "workspace", "GET", "repo", "/src/abc/{literal}.txt")
+    await request_repo_text(
+        _Ctx(),
+        "workspace",
+        "GET",
+        "repo",
+        "/src/abc/{literal}.txt",
+    )
     assert calls == ["/repositories/workspace/repo/src/abc/{literal}.txt"]
 
 
@@ -227,7 +239,10 @@ async def test_require_auth_raises_when_not_authenticated_with_oauth(
         def is_authenticated(self) -> bool:
             return False
 
-    monkeypatch.setattr("bitbucket_mcp.toolsets._common._display_available", lambda: True)
+    monkeypatch.setattr(
+        "bitbucket_mcp.toolsets._common.display_available",
+        lambda: True,
+    )
     store = CredentialStore(tmp_path / "creds.json")
     controller = AutoLoginController()
     oauth_client = OAuthClient(
@@ -241,7 +256,12 @@ async def test_require_auth_raises_when_not_authenticated_with_oauth(
     async def tool() -> str:
         return "ok"
 
-    decorated = require_auth(_Unauth(), controller, oauth_client, store)(tool)
+    decorated = require_auth(
+        _Unauth(),
+        controller,
+        oauth_client,
+        store,
+    )(tool)
     with pytest.raises(ToolError, match="ブラウザ"):
         await decorated()
     await controller.shutdown()
@@ -265,7 +285,10 @@ async def test_require_auth_raises_when_already_running(
         async def aclose(self) -> None:
             pass
 
-    monkeypatch.setattr("bitbucket_mcp.toolsets._common._display_available", lambda: True)
+    monkeypatch.setattr(
+        "bitbucket_mcp.toolsets._common.display_available",
+        lambda: True,
+    )
     store = CredentialStore(tmp_path / "creds.json")
     controller = AutoLoginController()
     oauth_client = OAuthClient(
@@ -279,7 +302,12 @@ async def test_require_auth_raises_when_already_running(
     async def tool() -> str:
         return "ok"
 
-    decorated = require_auth(_Unauth(), controller, oauth_client, store)(tool)
+    decorated = require_auth(
+        _Unauth(),
+        controller,
+        oauth_client,
+        store,
+    )(tool)
     with pytest.raises(ToolError, match="ブラウザ"):
         await decorated()
     with pytest.raises(ToolError, match="処理中"):
@@ -301,16 +329,140 @@ async def test_auto_login_releases_controller_after_unexpected_error() -> None:
     assert controller.is_running() is False
 
 
+def oauth_flow_error(message: str) -> Exception:
+    from bitbucket_mcp.oauth import OAuthFlowError
+
+    return OAuthFlowError(message)
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_message"),
+    [
+        (
+            TimeoutError("https://auth.example/?code=authorization-code"),
+            "Automatic login timed out",
+        ),
+        (
+            oauth_flow_error("access_token=access-token&refresh_token=refresh-token"),
+            "Automatic login OAuth flow failed",
+        ),
+        (
+            RuntimeError("client_secret=client-secret credential_payload={'access_token': 'x'}"),
+            "Unexpected error during automatic login",
+        ),
+    ],
+)
+async def test_auto_login_logs_classified_failures_without_credentials(
+    caplog: pytest.LogCaptureFixture,
+    error: Exception,
+    expected_message: str,
+) -> None:
+    import logging
+
+    caplog.set_level(logging.WARNING, logger="bitbucket_mcp.toolsets._common")
+    controller = AutoLoginController()
+
+    async def fail() -> None:
+        raise error
+
+    assert controller.start(fail) is True
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    assert controller.is_running() is False
+    assert [record.getMessage() for record in caplog.records] == [expected_message]
+    assert all(record.exc_info is None for record in caplog.records)
+    log_output = "\n".join(caplog.messages)
+    for sensitive_value in (
+        "https://auth.example/",
+        "authorization-code",
+        "access-token",
+        "refresh-token",
+        "client-secret",
+        "credential_payload",
+    ):
+        assert sensitive_value not in log_output
+
+
+async def test_auto_login_cancellation_is_silent(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    caplog.set_level(logging.WARNING, logger="bitbucket_mcp.toolsets._common")
+    started = asyncio.Event()
+    never = asyncio.Event()
+    controller = AutoLoginController()
+
+    async def wait_forever() -> None:
+        started.set()
+        await never.wait()
+
+    assert controller.start(wait_forever) is True
+    await started.wait()
+    await controller.shutdown()
+
+    assert controller.is_running() is False
+    assert caplog.records == []
+
+
+async def test_auto_login_uses_caller_owned_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    caplog.set_level(logging.WARNING, logger="bitbucket_mcp.toolsets._common")
+    captured_timeout: float | None = None
+
+    class FakeTimeout:
+        def __init__(self, timeout: float) -> None:
+            nonlocal captured_timeout
+            captured_timeout = timeout
+
+        async def __aenter__(self) -> "FakeTimeout":
+            return self
+
+        async def __aexit__(self, exc_type: object, exc: object, tb: object) -> bool:
+            del exc_type, exc, tb
+            raise TimeoutError
+
+    def forbidden_wait_for(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise AssertionError("caller-owned timeout must not use asyncio.wait_for")
+
+    def fake_timeout(timeout: float) -> FakeTimeout:
+        return FakeTimeout(timeout)
+
+    monkeypatch.setattr("bitbucket_mcp.toolsets._common.asyncio.wait_for", forbidden_wait_for)
+    monkeypatch.setattr("bitbucket_mcp.toolsets._common.asyncio.timeout", fake_timeout)
+
+    controller = AutoLoginController()
+
+    async def complete() -> None:
+        return None
+
+    assert controller.start(complete) is True
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    assert captured_timeout == 300
+    assert controller.is_running() is False
+    assert [record.getMessage() for record in caplog.records] == ["Automatic login timed out"]
+
+
 async def test_auto_login_closes_callback_server_when_start_fails(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    from bitbucket_mcp.oauth import OAuthFlowError
+
     class _Callback:
         def __init__(self, **_kwargs: object) -> None:
             self.closed = False
 
         async def start(self) -> None:
-            raise RuntimeError("start failed")
+            raise OAuthFlowError("callback failed")
 
         async def aclose(self) -> None:
             self.closed = True
@@ -332,11 +484,12 @@ async def test_auto_login_closes_callback_server_when_start_fails(
         scopes=["account"],
     )
     try:
-        await _perform_auto_login(  # pyright: ignore[reportPrivateUsage]
-            StaticAuthProvider("Bearer x"),
-            oauth_client,
-            CredentialStore(tmp_path / "creds.json"),
-        )
+        with pytest.raises(OAuthFlowError, match="callback failed"):
+            await perform_auto_login(
+                StaticAuthProvider("Bearer x"),
+                oauth_client,
+                CredentialStore(tmp_path / "creds.json"),
+            )
     finally:
         await oauth_client.aclose()
     assert callback.closed is True

@@ -94,6 +94,7 @@ async def test_retries_on_connect_error_for_get(monkeypatch: pytest.MonkeyPatch)
     attempts = 0
 
     async def fake_request(
+        _self: httpx.AsyncClient,
         method: str,
         path: str,
         params: dict[str, object] | None = None,
@@ -108,7 +109,7 @@ async def test_retries_on_connect_error_for_get(monkeypatch: pytest.MonkeyPatch)
             raise httpx.ConnectError("boom", request=request)
         return httpx.Response(200, json={"ok": True}, request=request)
 
-    monkeypatch.setattr(client._client, "request", fake_request)  # type: ignore[attr-defined]
+    monkeypatch.setattr(httpx.AsyncClient, "request", fake_request)
     result = await client.request("GET", "/x")
     await client.aclose()
     assert result == {"ok": True}

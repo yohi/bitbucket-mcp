@@ -1,5 +1,7 @@
 """OAuth プロトコルクライアントのテスト。"""
 
+import inspect
+
 import httpx
 import pytest
 from pytest_httpx import HTTPXMock
@@ -219,12 +221,12 @@ async def test_callback_server_rejects_unexpected_path() -> None:
     assert await server.wait_callback() == ("c", "expected")
     await server.aclose()
 
-async def test_wait_callback_timeout() -> None:
-    server = OAuthCallbackServer(port=0, expected_state="expected")
-    await server.start()
-    with pytest.raises(TimeoutError):
-        await server.wait_callback(timeout=0.1)
-    await server.aclose()
+
+def test_wait_callback_has_no_timeout_policy() -> None:
+    parameters = inspect.signature(OAuthCallbackServer.wait_callback).parameters
+
+    assert list(parameters) == ["self"]
+
 
 async def test_callback_server_rejects_second_request() -> None:
     server = OAuthCallbackServer(port=0, expected_state="expected")
@@ -236,7 +238,7 @@ async def test_callback_server_rejects_second_request() -> None:
             params={"code": "first", "state": "expected"},
         )
     assert response.status_code == 200
-    assert await server.wait_callback(timeout=1.0) == ("first", "expected")
+    assert await server.wait_callback() == ("first", "expected")
     async with httpx.AsyncClient() as http:
         response = await http.get(
             f"http://127.0.0.1:{port}/callback",
@@ -244,4 +246,3 @@ async def test_callback_server_rejects_second_request() -> None:
         )
     assert response.status_code != 200  # Should be rejected
     await server.aclose()
-

@@ -34,7 +34,7 @@ def resolve_workspace(workspace: str | None, default_workspace: str | None) -> s
     return resolved
 
 
-def _display_available() -> bool:
+def display_available() -> bool:
     if sys.platform in ("win32", "darwin"):
         return True
     return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
@@ -59,11 +59,16 @@ class AutoLoginController:
 
     async def _run_with_timeout(self, coro: Callable[[], Awaitable[None]]) -> None:
         try:
-            await asyncio.wait_for(coro(), timeout=self._TIMEOUT_SECONDS)
-        except (TimeoutError, OAuthFlowError, asyncio.CancelledError):
+            async with asyncio.timeout(self._TIMEOUT_SECONDS):
+                await coro()
+        except asyncio.CancelledError:
             return None
+        except TimeoutError:
+            logger.warning("Automatic login timed out")
+        except OAuthFlowError:
+            logger.warning("Automatic login OAuth flow failed")
         except Exception:
-            logger.exception("Unexpected error during automatic login")
+            logger.error("Unexpected error during automatic login")
 
     async def shutdown(self) -> None:
         if self._task is not None and not self._task.done():
@@ -72,7 +77,7 @@ class AutoLoginController:
                 await self._task
 
 
-async def _perform_auto_login(
+async def perform_auto_login(
     auth_provider: AuthProvider,
     oauth_client: OAuthClient,
     store: CredentialStore,
@@ -95,8 +100,6 @@ async def _perform_auto_login(
             )
         )
         await auth_provider.refresh()
-    except Exception:
-        logger.exception("Automatic login failed")
     finally:
         if server is not None:
             await server.aclose()
@@ -127,7 +130,7 @@ def require_auth(
                     "BITBUCKET_TOKEN 等を設定してください。"
                 )
 
-            if not _display_available():
+            if not display_available():
                 raise ToolError(
                     "認証が必要です。headless 環境では `bitbucket-mcp auth login --manual` "
                     "を実行してください。"
@@ -136,7 +139,7 @@ def require_auth(
             login_client = oauth_client
             credential_store = store
             started = controller.start(
-                lambda: _perform_auto_login(auth_provider, login_client, credential_store)
+                lambda: perform_auto_login(auth_provider, login_client, credential_store)
             )
             if started:
                 raise ToolError(

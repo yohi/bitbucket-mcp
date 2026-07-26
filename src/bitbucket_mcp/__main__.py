@@ -27,7 +27,9 @@ from bitbucket_mcp.oauth import (
     generate_state,
 )
 from bitbucket_mcp.server import create_server
-from bitbucket_mcp.toolsets._common import _display_available  # pyright: ignore[reportPrivateUsage]
+from bitbucket_mcp.toolsets._common import display_available as _display_available
+
+_OAUTH_CALLBACK_TIMEOUT_SECONDS = 300
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -131,7 +133,8 @@ async def _run_login(settings: Settings, manual: bool, port: int | None) -> int:
                 authorize_url = oauth_client.build_authorize_url(state)
             print(f"ブラウザで承認してください: {authorize_url}")
             webbrowser.open(authorize_url)
-            code, returned_state = await server.wait_callback()
+            async with asyncio.timeout(_OAUTH_CALLBACK_TIMEOUT_SECONDS):
+                code, returned_state = await server.wait_callback()
 
         if returned_state != state:
             print("CSRF 検証に失敗しました (state 不一致)。", file=sys.stderr)
@@ -144,6 +147,13 @@ async def _run_login(settings: Settings, manual: bool, port: int | None) -> int:
         return 0
     except OAuthFlowError as exc:
         print(f"OAuth エラー: {exc}", file=sys.stderr)
+        return 1
+    except TimeoutError:
+        print(
+            "OAuth 認証がタイムアウトしました。"
+            "もう一度 bitbucket-mcp auth login を実行してください。",
+            file=sys.stderr,
+        )
         return 1
     except httpx.HTTPStatusError as exc:
         print(f"トークン交換に失敗しました: {exc.response.status_code}", file=sys.stderr)
