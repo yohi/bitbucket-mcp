@@ -34,7 +34,7 @@ stdio トランスポートでは、保存済み資格情報または環境変�
 1. 保存済み OAuth トークン（`BITBUCKET_OAUTH_CLIENT_ID` と `BITBUCKET_OAUTH_CLIENT_SECRET` が両方設定され、保存済み `client_id` が `BITBUCKET_OAUTH_CLIENT_ID` と一致）
 2. `BITBUCKET_EMAIL` + `BITBUCKET_API_TOKEN`（Basic）
 3. `BITBUCKET_TOKEN`（Bearer）
-4. `BITBUCKET_OAUTH_CLIENT_ID`/`SECRET` のみ設定済み → サーバ起動は可能だが未認証のため、最初のツール呼び出しで `NotAuthenticatedError` を返し、`bitbucket-mcp auth login` を実行するよう案内する
+4. `BITBUCKET_OAUTH_CLIENT_ID`/`SECRET` のみ設定済み → サーバ起動は可能だが未認証。ディスプレイ環境では最初のツール呼び出しでブラウザ OAuth をバックグラウンド起動し、再実行を案内する。headless 環境では `ToolError` を返し、`bitbucket-mcp auth login --manual` を案内する
 5. 何もなし → 起動時 `AuthConfigError`
 
 > [!WARNING]
