@@ -108,7 +108,7 @@ async def _run_login(settings: Settings, manual: bool, port: int | None) -> int:
                 f"貼り付けてください:\n{authorize_url}"
             )
             code = getpass.getpass("authorization code: ").strip()
-            returned_state = input("state: ").strip()
+            returned_state = (await asyncio.to_thread(input, "state: ")).strip()
         else:
             if not _display_available():
                 print(
