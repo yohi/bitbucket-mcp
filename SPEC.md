@@ -31,15 +31,14 @@ stdio トランスポートでは、保存済み資格情報または環境変�
 
 ### 認証解決順序
 
-1. 保存済み OAuth トークン（client_id が `BITBUCKET_OAUTH_CLIENT_ID` と一致）
+1. 保存済み OAuth トークン（`BITBUCKET_OAUTH_CLIENT_ID` と `BITBUCKET_OAUTH_CLIENT_SECRET` が両方設定され、保存済み `client_id` が `BITBUCKET_OAUTH_CLIENT_ID` と一致）
 2. `BITBUCKET_EMAIL` + `BITBUCKET_API_TOKEN`（Basic）
 3. `BITBUCKET_TOKEN`（Bearer）
-4. `BITBUCKET_OAUTH_CLIENT_ID`/`SECRET` のみ設定済み → 未ログイン状態でサーバ起動、初回ツール呼び出しで自動ログイン
+4. `BITBUCKET_OAUTH_CLIENT_ID`/`SECRET` のみ設定済み → サーバ起動は可能だが未認証のため、最初のツール呼び出しで `NotAuthenticatedError` を返し、`bitbucket-mcp auth login` を実行するよう案内する
 5. 何もなし → 起動時 `AuthConfigError`
 
 > [!WARNING]
-> **App Password は非対応です** (2026年7月28日に完全廃止されたため)。
-> 起動時に検知した場合は「App Password は廃止済み。API Token または Access Token を使用せよ」というエラーを発生させます。
+> **App Password は非対応です**（2026年7月28日に完全廃止予定）。API Token または Access Token を使用してください。
 
 ---
 

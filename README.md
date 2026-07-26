@@ -19,11 +19,11 @@ uv run python -m bitbucket_mcp
 
 優先順位:
 
-1. **保存済み OAuth トークン**（`bitbucket-mcp auth login` で取得）
+1. **保存済み OAuth トークン**（`BITBUCKET_OAUTH_CLIENT_ID` と `BITBUCKET_OAUTH_CLIENT_SECRET` が両方設定され、保存済み `client_id` が一致する場合のみ）
 2. `BITBUCKET_EMAIL` + `BITBUCKET_API_TOKEN` → Basic 認証
 3. `BITBUCKET_TOKEN` → Bearer 認証
 
-**App Password は非対応です** (2026-07-28 に完全廃止予定）。API Token または Access Token を使用してください。
+**App Password は非対応です**（2026-07-28 に完全廃止予定）。API Token または Access Token を使用してください。
 
 ### ブラウザ OAuth ログイン（推奨）
 
