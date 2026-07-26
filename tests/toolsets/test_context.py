@@ -2,15 +2,14 @@ import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 from pytest_httpx import HTTPXMock
 
+from bitbucket_mcp.auth import AuthProvider
 from bitbucket_mcp.toolsets import context
 
 BASE = "https://api.bitbucket.org/2.0"
 
 
 async def test_get_current_user(register_toolset, call_tool, httpx_mock: HTTPXMock) -> None:
-    httpx_mock.add_response(
-        url=f"{BASE}/user", json={"username": "alice", "account_id": "123"}
-    )
+    httpx_mock.add_response(url=f"{BASE}/user", json={"username": "alice", "account_id": "123"})
     mcp, _ = register_toolset(context.register)
     _, structured = await call_tool(mcp, "get_current_user", {})
     request = httpx_mock.get_request()
@@ -31,6 +30,29 @@ async def test_authenticated_require_auth_tool_is_registered_and_callable(
 
     assert "get_current_user" in tools
     assert structured == {"account_id": "123"}
+
+
+async def test_require_auth_tool_rejects_unauthenticated_provider(
+    register_toolset, call_tool, httpx_mock: HTTPXMock
+) -> None:
+    class _UnauthenticatedProvider(AuthProvider):
+        def is_authenticated(self) -> bool:
+            return False
+
+        async def authorization_header(self) -> str:
+            raise AssertionError("authorization header must not be requested")
+
+        async def refresh(self) -> None:
+            return None
+
+        async def aclose(self) -> None:
+            return None
+
+    mcp, _ = register_toolset(context.register, auth_provider=_UnauthenticatedProvider())
+
+    with pytest.raises(ToolError, match="auth login"):
+        await call_tool(mcp, "get_current_user", {})
+    assert httpx_mock.get_request() is None
 
 
 async def test_list_workspaces_clamps_pagelen(
@@ -56,9 +78,7 @@ async def test_list_workspaces_administrator_filter(
     assert request.url.params["q"] == 'permission="owner"'
 
 
-async def test_list_workspaces_rejects_administrator_with_q(
-    register_toolset, call_tool
-) -> None:
+async def test_list_workspaces_rejects_administrator_with_q(register_toolset, call_tool) -> None:
     mcp, _ = register_toolset(context.register)
     with pytest.raises(ToolError, match=r"administrator|q"):
         await call_tool(mcp, "list_workspaces", {"administrator": True, "q": "foo"})

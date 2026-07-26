@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import inspect
 import logging
 import os
 import sys
@@ -16,7 +15,7 @@ from typing import Any, TypeVar
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from bitbucket_mcp.auth import AuthProvider
+from bitbucket_mcp.auth import AuthConfigError, AuthProvider
 from bitbucket_mcp.credentials import CredentialStore
 from bitbucket_mcp.oauth import OAuthCallbackServer, OAuthClient, OAuthFlowError, generate_state
 
@@ -108,17 +107,19 @@ def require_auth(
     controller: AutoLoginController,
     oauth_client: OAuthClient | None,
     store: CredentialStore | None,
-) -> Callable[[Callable[..., Awaitable[T] | T]], Callable[..., Awaitable[str | T]]]:
+) -> Callable[
+    [Callable[..., Awaitable[T]]],
+    Callable[..., Awaitable[T]],
+]:
     """未ログイン時に自動ログインを試みるデコレータ。"""
 
     def decorator(
-        fn: Callable[..., Awaitable[T] | T],
-    ) -> Callable[..., Awaitable[str | T]]:
+        fn: Callable[..., Awaitable[T]],
+    ) -> Callable[..., Awaitable[T]]:
         @wraps(fn)
-        async def wrapper(*args: Any, **kwargs: Any) -> str | T:
+        async def wrapper(*args: Any, **kwargs: Any) -> T:
             if auth_provider.is_authenticated():
-                result = fn(*args, **kwargs)
-                return await result if inspect.isawaitable(result) else result
+                return await fn(*args, **kwargs)
 
             if oauth_client is None or store is None:
                 raise ToolError(
@@ -138,8 +139,10 @@ def require_auth(
                 lambda: _perform_auto_login(auth_provider, login_client, credential_store)
             )
             if started:
-                return "Bitbucket 認証をブラウザで開始しました。同意後に操作を再実行してください。"
-            return "認証処理中です。少し待って再実行してください。"
+                raise ToolError(
+                    "Bitbucket 認証をブラウザで開始しました。同意後に操作を再実行してください。"
+                )
+            raise ToolError("認証処理中です。少し待って再実行してください。")
 
         return wrapper
 
@@ -151,10 +154,13 @@ def wrap_tool(
     oauth_client: OAuthClient | None,
     store: CredentialStore | None,
     controller: AutoLoginController | None = None,
-) -> Callable[[Callable[..., Awaitable[T] | T]], Callable[..., Awaitable[str | T]]]:
+) -> Callable[
+    [Callable[..., Awaitable[T]]],
+    Callable[..., Awaitable[T]],
+]:
     """toolset 共通の認証ラッパーを生成する。"""
     if auth_provider is None:
-        raise ToolError(
+        raise AuthConfigError(
             "auth_provider が指定されていません。BITBUCKET_TOKEN 等を設定してください。"
         )
     resolved_controller = controller or AutoLoginController()
@@ -202,11 +208,10 @@ async def request_repo_json(
     body: dict[str, Any] | None = None,
     form: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return await ctx.request_json(
-        workspace,
+    path = _build_repo_path(ctx, workspace, repo_slug, suffix, path_params)
+    return await ctx.client.request(
         method,
-        f"/repositories/{{ws}}/{{repo_slug}}{suffix}",
-        path_params={"repo_slug": repo_slug, **(path_params or {})},
+        path,
         query=query,
         body=body,
         form=form,
@@ -223,13 +228,26 @@ async def request_repo_text(
     path_params: dict[str, Any] | None = None,
     query: dict[str, Any] | None = None,
 ) -> str:
-    return await ctx.request_text(
-        workspace,
+    path = _build_repo_path(ctx, workspace, repo_slug, suffix, path_params)
+    return await ctx.client.request_text(
         method,
-        f"/repositories/{{ws}}/{{repo_slug}}{suffix}",
-        path_params={"repo_slug": repo_slug, **(path_params or {})},
+        path,
         query=query,
     )
+
+
+def _build_repo_path(
+    ctx: Any,
+    workspace: str | None,
+    repo_slug: str,
+    suffix: str,
+    path_params: dict[str, Any] | None,
+) -> str:
+    resolved_suffix = suffix
+    for name, value in (path_params or {}).items():
+        resolved_suffix = resolved_suffix.replace(f"{{{name}}}", str(value))
+    workspace_slug = ctx.resolve_workspace(workspace)
+    return f"/repositories/{workspace_slug}/{repo_slug}{resolved_suffix}"
 
 
 class RegisterContext:

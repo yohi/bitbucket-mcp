@@ -110,7 +110,6 @@ async def test_make_lifespan_passes_shared_auth_dependencies_and_shuts_down_cont
     class FakeProvider:
         async def aclose(self) -> None:
             pass
-        pass
 
     class FakeStore:
         pass

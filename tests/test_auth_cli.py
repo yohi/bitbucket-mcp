@@ -62,12 +62,18 @@ def test_manual_login_rejects_mismatched_state(
     monkeypatch.setenv("BITBUCKET_OAUTH_CLIENT_ID", "client-id")
     monkeypatch.setenv("BITBUCKET_OAUTH_CLIENT_SECRET", "client-secret")
     monkeypatch.setattr(entry, "generate_state", lambda: "expected-state")
-    pasted_values = iter(["authorization-code", "wrong-state"])
+    authorization_codes = iter(["authorization-code"])
 
-    def fake_getpass(_: str) -> str:
-        return next(pasted_values)
+    def fake_getpass(prompt: str) -> str:
+        assert prompt == "authorization code: "
+        return next(authorization_codes)
 
     monkeypatch.setattr(entry.getpass, "getpass", fake_getpass)
+
+    def fake_input(_: str) -> str:
+        return "wrong-state"
+
+    monkeypatch.setattr("builtins.input", fake_input)
 
     class FakeOAuthClient:
         def __init__(self, **_: str) -> None:

@@ -74,10 +74,6 @@ def register(
             return await repo_json(workspace, "GET", repo_slug, f"/issues/{issue_id}")
         return await repo_json(workspace, "GET", repo_slug, f"/issues/{issue_id}/{action}")
 
-    ctx.register_tools(
-        read=[(list_issues, READ), (get_issue, READ)],
-    )
-
     async def create_issue(
         *,
         workspace: str | None = None,
@@ -141,6 +137,7 @@ def register(
         )
 
     ctx.register_tools(
+        read=[(list_issues, READ), (get_issue, READ)],
         write=[(create_issue, WRITE), (update_issue, WRITE), (add_issue_comment, WRITE)],
         destructive=[(delete_issue, DESTRUCTIVE)],
     )

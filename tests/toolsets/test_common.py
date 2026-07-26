@@ -4,8 +4,9 @@ import asyncio
 from pathlib import Path
 
 import pytest
+from mcp.server.fastmcp.exceptions import ToolError
 
-from bitbucket_mcp.auth import AuthProvider, StaticAuthProvider
+from bitbucket_mcp.auth import AuthConfigError, AuthProvider, StaticAuthProvider
 from bitbucket_mcp.credentials import CredentialStore
 from bitbucket_mcp.oauth import OAuthClient
 from bitbucket_mcp.toolsets._common import (  # pyright: ignore[reportPrivateUsage]
@@ -16,6 +17,7 @@ from bitbucket_mcp.toolsets._common import (  # pyright: ignore[reportPrivateUsa
     request_repo_json,
     request_repo_text,
     require_auth,
+    wrap_tool,
 )
 
 
@@ -108,20 +110,25 @@ async def test_register_context_request_text_resolves_workspace() -> None:
 async def test_request_repo_json_builds_repository_path() -> None:
     calls: list[tuple[str, str, dict[str, object] | None]] = []
 
-    class _Ctx:
-        async def request_json(
+    class _Client:
+        async def request(
             self,
-            workspace: str | None,
             method: str,
-            path_template: str,
+            path: str,
             *,
-            path_params: dict[str, object] | None = None,
             query: dict[str, object] | None = None,
             body: dict[str, object] | None = None,
             form: dict[str, object] | None = None,
         ) -> dict[str, object]:
-            calls.append((method, path_template.format(ws=workspace, **(path_params or {})), query))
+            calls.append((method, path, query))
             return {"ok": True}
+
+    class _Ctx:
+        client = _Client()
+
+        def resolve_workspace(self, workspace: str | None) -> str:
+            assert workspace is not None
+            return workspace
 
     result = await request_repo_json(_Ctx(), "workspace", "GET", "repo", "/issues")
     assert result == {"ok": True}
@@ -131,32 +138,79 @@ async def test_request_repo_json_builds_repository_path() -> None:
 async def test_request_repo_text_builds_repository_path() -> None:
     calls: list[tuple[str, str, dict[str, object] | None]] = []
 
-    class _Ctx:
+    class _Client:
         async def request_text(
             self,
-            workspace: str | None,
             method: str,
-            path_template: str,
+            path: str,
             *,
-            path_params: dict[str, object] | None = None,
             query: dict[str, object] | None = None,
         ) -> str:
-            calls.append((method, path_template.format(ws=workspace, **(path_params or {})), query))
+            calls.append((method, path, query))
             return "text"
+
+    class _Ctx:
+        client = _Client()
+
+        def resolve_workspace(self, workspace: str | None) -> str:
+            assert workspace is not None
+            return workspace
 
     result = await request_repo_text(_Ctx(), "workspace", "GET", "repo", "/src/x")
     assert result == "text"
     assert calls == [("GET", "/repositories/workspace/repo/src/x", None)]
 
 
+async def test_request_repo_json_preserves_braces_in_suffix() -> None:
+    calls: list[str] = []
+
+    class _Client:
+        async def request(self, _method: str, path: str, **_kwargs: object) -> dict[str, object]:
+            calls.append(path)
+            return {"ok": True}
+
+    class _Ctx:
+        client = _Client()
+
+        def resolve_workspace(self, workspace: str | None) -> str:
+            assert workspace is not None
+            return workspace
+
+    await request_repo_json(_Ctx(), "workspace", "GET", "repo", "/src/abc/{literal}.txt")
+    assert calls == ["/repositories/workspace/repo/src/abc/{literal}.txt"]
+
+
+async def test_request_repo_text_preserves_braces_in_suffix() -> None:
+    calls: list[str] = []
+
+    class _Client:
+        async def request_text(self, _method: str, path: str, **_kwargs: object) -> str:
+            calls.append(path)
+            return "text"
+
+    class _Ctx:
+        client = _Client()
+
+        def resolve_workspace(self, workspace: str | None) -> str:
+            assert workspace is not None
+            return workspace
+
+    await request_repo_text(_Ctx(), "workspace", "GET", "repo", "/src/abc/{literal}.txt")
+    assert calls == ["/repositories/workspace/repo/src/abc/{literal}.txt"]
+
+
 async def test_require_auth_passes_when_authenticated() -> None:
     provider = StaticAuthProvider("Bearer x")
     controller = AutoLoginController()
-    decorated = require_auth(provider, controller, None, None)(lambda: "ok")
+
+    async def tool() -> str:
+        return "ok"
+
+    decorated = require_auth(provider, controller, None, None)(tool)
     assert await decorated() == "ok"
 
 
-async def test_require_auth_returns_message_when_not_authenticated_with_oauth(
+async def test_require_auth_raises_when_not_authenticated_with_oauth(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -183,14 +237,18 @@ async def test_require_auth_returns_message_when_not_authenticated_with_oauth(
         redirect_uri="http://127.0.0.1:0/callback",
         scopes=["account"],
     )
-    decorated = require_auth(_Unauth(), controller, oauth_client, store)(lambda: "ok")
-    result = await decorated()
-    assert "ブラウザ" in result
+
+    async def tool() -> str:
+        return "ok"
+
+    decorated = require_auth(_Unauth(), controller, oauth_client, store)(tool)
+    with pytest.raises(ToolError, match="ブラウザ"):
+        await decorated()
     await controller.shutdown()
     await oauth_client.aclose()
 
 
-async def test_require_auth_returns_busy_when_already_running(
+async def test_require_auth_raises_when_already_running(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -217,12 +275,22 @@ async def test_require_auth_returns_busy_when_already_running(
         redirect_uri="http://127.0.0.1:0/callback",
         scopes=["account"],
     )
-    decorated = require_auth(_Unauth(), controller, oauth_client, store)(lambda: "ok")
-    await decorated()
-    result = await decorated()
-    assert "処理中" in result
+
+    async def tool() -> str:
+        return "ok"
+
+    decorated = require_auth(_Unauth(), controller, oauth_client, store)(tool)
+    with pytest.raises(ToolError, match="ブラウザ"):
+        await decorated()
+    with pytest.raises(ToolError, match="処理中"):
+        await decorated()
     await controller.shutdown()
     await oauth_client.aclose()
+
+
+def test_wrap_tool_raises_auth_config_error_without_provider() -> None:
+    with pytest.raises(AuthConfigError, match="auth_provider"):
+        wrap_tool(None, None, None)
 
 
 async def test_auto_login_releases_controller_after_unexpected_error() -> None:

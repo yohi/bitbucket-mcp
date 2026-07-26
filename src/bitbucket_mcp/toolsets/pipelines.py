@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
@@ -17,6 +18,8 @@ from bitbucket_mcp.toolsets._common import (
     AutoLoginController,
     build_query,
     create_toolset_context_from_register_args,
+    request_repo_json,
+    request_repo_text,
 )
 
 if TYPE_CHECKING:
@@ -44,6 +47,8 @@ def register(
         store,
         controller,
     )
+    repo_json = partial(request_repo_json, ctx)
+    repo_text = partial(request_repo_text, ctx)
 
     async def list_pipelines(
         *,
@@ -54,11 +59,8 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List pipeline runs in a repository."""
-        ws = ctx.resolve_workspace(workspace)
         query = build_query(page, pagelen, sort=sort)
-        return await client.request(
-            "GET", f"/repositories/{ws}/{repo_slug}/pipelines/", query=query
-        )
+        return await repo_json(workspace, "GET", repo_slug, "/pipelines/", query=query)
 
     async def get_pipeline(
         *,
@@ -71,19 +73,24 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """Get a pipeline, its steps, or a step log."""
-        ws = ctx.resolve_workspace(workspace)
-        base = f"/repositories/{ws}/{repo_slug}/pipelines/{pipeline_uuid}"
         if action == "details":
-            return await client.request("GET", base)
+            return await repo_json(workspace, "GET", repo_slug, f"/pipelines/{pipeline_uuid}")
         if action == "steps":
-            return await client.request(
+            return await repo_json(
+                workspace,
                 "GET",
-                f"{base}/steps",
+                repo_slug,
+                f"/pipelines/{pipeline_uuid}/steps",
                 query=build_query(page, pagelen),
             )
         if step_uuid is None:
             raise ToolError("action='step_log' には step_uuid が必要です。")
-        text = await client.request_text("GET", f"{base}/steps/{step_uuid}/log")
+        text = await repo_text(
+            workspace,
+            "GET",
+            repo_slug,
+            f"/pipelines/{pipeline_uuid}/steps/{step_uuid}/log",
+        )
         return {"content": text}
 
     ctx.register_tools(
@@ -98,7 +105,6 @@ def register(
         variables: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Trigger a pipeline run for a branch or tag."""
-        ws = ctx.resolve_workspace(workspace)
         target_body: dict[str, Any] = {
             "ref_type": target.ref_type,
             "ref_name": target.ref_name,
@@ -109,16 +115,17 @@ def register(
         body: dict[str, Any] = {"target": target_body}
         if variables:
             body["variables"] = variables
-        return await client.request("POST", f"/repositories/{ws}/{repo_slug}/pipelines/", body=body)
+        return await repo_json(workspace, "POST", repo_slug, "/pipelines/", body=body)
 
     async def stop_pipeline(
         *, workspace: str | None = None, repo_slug: str, pipeline_uuid: str
     ) -> dict[str, Any]:
         """Stop a running pipeline."""
-        ws = ctx.resolve_workspace(workspace)
-        return await client.request(
+        return await repo_json(
+            workspace,
             "POST",
-            f"/repositories/{ws}/{repo_slug}/pipelines/{pipeline_uuid}/stopPipeline",
+            repo_slug,
+            f"/pipelines/{pipeline_uuid}/stopPipeline",
         )
 
     ctx.register_tools(
