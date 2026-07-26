@@ -1,16 +1,19 @@
 """認証フックのテスト。"""
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
+from mcp.types import ToolAnnotations
 
 from bitbucket_mcp.auth import AuthConfigError, AuthProvider, StaticAuthProvider
 from bitbucket_mcp.credentials import CredentialStore
-from bitbucket_mcp.oauth import OAuthClient
+from bitbucket_mcp.oauth import OAuthClient, OAuthTokenResponse
 from bitbucket_mcp.toolsets._common import (
     AutoLoginController,
+    RegisterContext,
     build_body,
     create_toolset_context_from_register_args,
     perform_auto_login,
@@ -39,6 +42,90 @@ def test_create_toolset_context_from_register_args_preserves_options() -> None:
     assert ctx.client is client
     assert ctx.read_only is True
     assert ctx.default_workspace == "workspace"
+
+
+type _RegisteredTool = tuple[Callable[..., Awaitable[str]], ToolAnnotations]
+
+
+class _ToolRecorder:
+    def __init__(self) -> None:
+        self.tools: list[_RegisteredTool] = []
+
+    def add_tool(
+        self,
+        fn: Callable[..., Awaitable[str]],
+        *,
+        annotations: ToolAnnotations,
+    ) -> None:
+        self.tools.append((fn, annotations))
+
+
+def test_register_tools_orders_all_categories_when_not_read_only() -> None:
+    async def always_tool() -> str:
+        return "always"
+
+    async def read_tool() -> str:
+        return "read"
+
+    async def write_tool() -> str:
+        return "write"
+
+    async def destructive_tool() -> str:
+        return "destructive"
+
+    always_annotations = ToolAnnotations(openWorldHint=False)
+    read_annotations = ToolAnnotations(readOnlyHint=True)
+    write_annotations = ToolAnnotations(readOnlyHint=False)
+    destructive_annotations = ToolAnnotations(destructiveHint=True)
+    recorder = _ToolRecorder()
+    context = RegisterContext(recorder, None, read_only=False)
+
+    context.register_tools(
+        always=[(always_tool, always_annotations)],
+        read=[(read_tool, read_annotations)],
+        write=[(write_tool, write_annotations)],
+        destructive=[(destructive_tool, destructive_annotations)],
+    )
+
+    assert recorder.tools == [
+        (always_tool, always_annotations),
+        (read_tool, read_annotations),
+        (write_tool, write_annotations),
+        (destructive_tool, destructive_annotations),
+    ]
+
+
+def test_register_tools_excludes_write_categories_when_read_only() -> None:
+    async def always_tool() -> str:
+        return "always"
+
+    async def read_tool() -> str:
+        return "read"
+
+    async def write_tool() -> str:
+        return "write"
+
+    async def destructive_tool() -> str:
+        return "destructive"
+
+    always_annotations = ToolAnnotations(openWorldHint=False)
+    read_annotations = ToolAnnotations(readOnlyHint=True)
+    write_annotations = ToolAnnotations(readOnlyHint=False)
+    destructive_annotations = ToolAnnotations(destructiveHint=True)
+    recorder = _ToolRecorder()
+    context = RegisterContext(recorder, None, read_only=True)
+
+    context.register_tools(
+        always=[(always_tool, always_annotations)],
+        read=[(read_tool, read_annotations)],
+        write=[(write_tool, write_annotations)],
+        destructive=[(destructive_tool, destructive_annotations)],
+    )
+
+    assert recorder.tools == [
+        (always_tool, always_annotations),
+        (read_tool, read_annotations),
+    ]
 
 
 type _RequestCall = tuple[
@@ -493,3 +580,125 @@ async def test_auto_login_closes_callback_server_when_start_fails(
     finally:
         await oauth_client.aclose()
     assert callback.closed is True
+
+
+async def test_perform_auto_login_exchanges_persists_refreshes_and_cleans_up(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    events: list[str] = []
+    browser_urls: list[str] = []
+    store = CredentialStore(tmp_path / "credentials.json")
+    client_closed = False
+
+    class RefreshingProvider(AuthProvider):
+        async def authorization_header(self) -> str:
+            return "Bearer synthetic-access-token"
+
+        async def refresh(self) -> None:
+            stored = store.load()
+            assert stored is not None
+            assert stored.access_token == "synthetic-access-token"
+            assert stored.refresh_token == "synthetic-refresh-token"
+            events.append("refresh")
+
+        async def aclose(self) -> None:
+            return None
+
+        def is_authenticated(self) -> bool:
+            return True
+
+    class FakeCallbackServer:
+        def __init__(self, *, host: str, port: int, expected_state: str) -> None:
+            assert host == "127.0.0.1"
+            assert port == 8976
+            self.expected_state = expected_state
+
+        async def start(self) -> None:
+            events.append("callback-start")
+
+        async def wait_callback(self) -> tuple[str, str | None]:
+            events.append("callback-wait")
+            return ("synthetic-authorization-code", self.expected_state)
+
+        async def aclose(self) -> None:
+            events.append("callback-close")
+
+    def fake_build_authorize_url(_client: OAuthClient, state: str) -> str:
+        assert state == "synthetic-state"
+        events.append("authorize")
+        return "https://bitbucket.org/authorize?state=synthetic-state"
+
+    async def fake_exchange_code(
+        _client: OAuthClient,
+        code: str,
+    ) -> OAuthTokenResponse:
+        assert code == "synthetic-authorization-code"
+        events.append("exchange")
+        return OAuthTokenResponse(
+            access_token="synthetic-access-token",
+            refresh_token="synthetic-refresh-token",
+            expires_in=600,
+            scopes=["account"],
+            token_type="bearer",
+        )
+
+    def fake_browser_open(url: str) -> bool:
+        browser_urls.append(url)
+        events.append("browser-open")
+        return True
+
+    original_aclose = OAuthClient.aclose
+
+    async def tracked_aclose(client: OAuthClient) -> None:
+        nonlocal client_closed
+        await original_aclose(client)
+        client_closed = True
+
+    monkeypatch.setattr(
+        "bitbucket_mcp.toolsets._common.OAuthCallbackServer",
+        FakeCallbackServer,
+    )
+    monkeypatch.setattr(
+        "bitbucket_mcp.toolsets._common.generate_state",
+        lambda: "synthetic-state",
+    )
+    monkeypatch.setattr(
+        "bitbucket_mcp.toolsets._common.time.time",
+        lambda: 1_000,
+    )
+    monkeypatch.setattr(OAuthClient, "build_authorize_url", fake_build_authorize_url)
+    monkeypatch.setattr(OAuthClient, "exchange_code", fake_exchange_code)
+    monkeypatch.setattr(OAuthClient, "aclose", tracked_aclose)
+    monkeypatch.setattr(
+        "bitbucket_mcp.toolsets._common.webbrowser.open",
+        fake_browser_open,
+    )
+    oauth_client = OAuthClient(
+        base_url="https://bitbucket.org",
+        client_id="synthetic-client-id",
+        client_secret="synthetic-client-secret",
+        redirect_uri="http://127.0.0.1:8976/callback",
+        scopes=["account"],
+    )
+
+    try:
+        await perform_auto_login(RefreshingProvider(), oauth_client, store)
+    finally:
+        await oauth_client.aclose()
+
+    stored = store.load()
+    assert browser_urls == ["https://bitbucket.org/authorize?state=synthetic-state"]
+    assert stored is not None
+    assert stored.client_id == "synthetic-client-id"
+    assert stored.expires_at == 1_600
+    assert events == [
+        "callback-start",
+        "authorize",
+        "browser-open",
+        "callback-wait",
+        "exchange",
+        "refresh",
+        "callback-close",
+    ]
+    assert client_closed is True

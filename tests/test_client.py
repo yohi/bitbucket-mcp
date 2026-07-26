@@ -157,6 +157,21 @@ class _RefreshFailsProvider(AuthProvider):
         return True
 
 
+class _RefreshHttpErrorProvider(AuthProvider):
+    async def authorization_header(self) -> str:
+        return "Bearer old"
+
+    async def refresh(self) -> None:
+        request = httpx.Request("POST", "https://oauth.example.test/token")
+        raise httpx.ConnectError("synthetic-refresh-secret", request=request)
+
+    async def aclose(self) -> None:
+        pass
+
+    def is_authenticated(self) -> bool:
+        return True
+
+
 async def test_401_triggers_refresh_and_retry(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(status_code=401, json={"error": {"message": "expired"}})
     httpx_mock.add_response(status_code=200, json={"ok": True})
@@ -180,6 +195,24 @@ async def test_401_refresh_failure_raises_tool_error(httpx_mock: HTTPXMock) -> N
     with pytest.raises(ToolError, match="更新"):
         await client.request("GET", "/x")
     await client.aclose()
+
+
+async def test_401_refresh_http_error_raises_secret_safe_tool_error(
+    httpx_mock: HTTPXMock,
+) -> None:
+    httpx_mock.add_response(status_code=401, json={"error": {"message": "expired"}})
+
+    async with BitbucketClient(
+        base_url=BASE_URL,
+        auth_provider=_RefreshHttpErrorProvider(),
+        backoff_base=0.0,
+    ) as client:
+        with pytest.raises(ToolError) as exc_info:
+            await client.request("GET", "/x")
+
+    error_message = str(exc_info.value)
+    assert "認証の更新中に通信エラーが発生しました" in error_message
+    assert "synthetic-refresh-secret" not in error_message
 
 
 async def test_401_after_refresh_raises_not_authenticated(
