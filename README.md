@@ -38,7 +38,7 @@ uv run python -m bitbucket_mcp
    ```bash
    bitbucket-mcp auth login
    ```
-5. トークンは `BITBUCKET_CONFIG_DIR`（未設定時は `~/.config/bitbucket-mcp/credentials.json`）に `0600` で保存されます。
+5. トークンは `BITBUCKET_CONFIG_DIR` → `XDG_CONFIG_HOME/bitbucket-mcp/credentials.json` → `~/.config/bitbucket-mcp/credentials.json` の順で決まる保存先に `0600` で保存されます。
 
 headless 環境では `bitbucket-mcp auth login --manual` を使用してください。
 
