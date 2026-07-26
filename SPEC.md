@@ -42,6 +42,17 @@ stdio トランスポートでは、保存済み資格情報または環境変�
 
 ---
 
+### 認証セキュリティ制約とOAuthフロー詳細
+- **トークンファイルの権限**: 保存される `credentials.json` はファイルモード `0600`、親ディレクトリは `0700` で作成されます。
+- **`client_secret` の保存場所**: `client_secret` は環境変数からのみ読み取られ、トークンファイルには絶対に書き込まれません。
+- **ログ出力制約**: アクセストークン、リフレッシュトークン、および `client_secret` はいかなるログ出力にも含まれません。
+- **`BITBUCKET_OAUTH_BASE_URL` のドメイン制限**: `bitbucket.org` ドメイン以外の URL はバリデーションで拒否されます。
+- **自動ログインフロー**: 未認証状態でツールが呼び出されると、`display_available()` により GUI 環境を判定し、ディスプレイがある場合はバックグラウンドでブラウザ OAuth を自動開始します。headless 環境では自動ログインは行わず、`ToolError` で `--manual` を案内します。
+- **トークンの有効期限管理**: アクセストークンの有効期限が近づく（60秒前）と、`BitbucketClient` が自動的に `refresh_token` を使用してトークンを更新します。
+- **`refresh_token` の失効条件**: `refresh_token` は **3ヶ月間未使用** または手動で無効化された場合に失効します。失効した場合は `bitbucket-mcp auth logout && bitbucket-mcp auth login` で再発行が必要です。
+- **手動ログインフロー**: `bitbucket-mcp auth login --manual` は認可 URL を表示し、リダイレクト URL に含まれる `code` と `state` を別々に入力させます。`--port PORT` は `BITBUCKET_OAUTH_CALLBACK_PORT` を上書きするため、OAuth コンシューマに登録した Callback URL のポートと一致させる必要があります。
+- **資格情報パスの解決順序**: `BITBUCKET_CONFIG_DIR` が設定されている場合は `$BITBUCKET_CONFIG_DIR/credentials.json`、未設定で `XDG_CONFIG_HOME` が設定されている場合は `$XDG_CONFIG_HOME/bitbucket-mcp/credentials.json`、どちらも未設定の場合は `~/.config/bitbucket-mcp/credentials.json` を使用します。
+
 ## 4. 環境変数
 
 | 変数名 | 用途 | 既定値 |
@@ -56,7 +67,7 @@ stdio トランスポートでは、保存済み資格情報または環境変�
 | `BITBUCKET_OAUTH_CLIENT_ID` | Bitbucket Cloud OAuth コンシューマの client_id | (なし) |
 | `BITBUCKET_OAUTH_CLIENT_SECRET` | Bitbucket Cloud OAuth コンシューマの client_secret | (なし) |
 | `BITBUCKET_OAUTH_CALLBACK_PORT` | OAuth loopback callback の待受ポート | `8976` |
-| `BITBUCKET_CONFIG_DIR` | 保存済み OAuth トークンのディレクトリ | `~/.config/bitbucket-mcp/` |
+| `BITBUCKET_CONFIG_DIR` | 保存済み OAuth トークンのディレクトリ | `$XDG_CONFIG_HOME/bitbucket-mcp/`、未設定時は `~/.config/bitbucket-mcp/` |
 | `BITBUCKET_OAUTH_BASE_URL` | OAuth authorize/token ホスト | `https://bitbucket.org` |
 
 ---
@@ -65,7 +76,7 @@ stdio トランスポートでは、保存済み資格情報または環境変�
 
 ### 共通パラメータと注記
 - **R** = readOnly / **W** = write / **💥** = destructive
-- 全てのツールで、`workspace` が未指定かつ `BITBUCKET_DEFAULT_WORKSPACE` も設定されていない場合は `ToolError` となります。
+- `repos`、`pull_requests`、`issues`、`pipelines` のリポジトリスコープツールでは、`workspace` が未指定かつ `BITBUCKET_DEFAULT_WORKSPACE` も設定されていない場合に `ToolError` となります。`context`、`users`、`bitbucket_api`、`bitbucket_login` は対象外です。
 - `BITBUCKET_READ_ONLY=true` の際、`W` または `💥` のツールは FastMCP に登録されません。
 
 ### MCP Annotations ポリシー
@@ -76,7 +87,8 @@ stdio トランスポートでは、保存済み資格情報または環境変�
 - **汎用 API エスケープハッチ (`bitbucket_api`)**: `openWorldHint=True`
 
 ### ツール戻り値の統一仕様
-- 全てのツール関数は、返り値を `dict[str, Any]` に統一します。
+- `bitbucket_login` を除くツール関数は、返り値を `dict[str, Any]` に統一します。
+- `bitbucket_login` は、認証状態を示す `str` を返します。
 - `diff`, `patch`, パイプラインログなどのテキストデータは、生テキストではなく `{"content": <text>, "format": <fmt>}` または `{"content": <text>}` の形式にラッピングして返却します。
 
 ### 5.1 `context`
@@ -139,10 +151,27 @@ stdio トランスポートでは、保存済み資格情報または環境変�
 |---|---|---|---|
 | `get_user` | R | `GET /users/{selected_user}` | `selected_user` (account_id または UUID) |
 
-### 5.7 `bitbucket_api` (常時登録)
+### 5.7 `bitbucket_api`（既定で登録）
+
 任意のエンドポイントを直接叩くための汎用エスケープハッチです。
+
+- **登録制御**: `BITBUCKET_TOOLSETS` に `-bitbucket_api` を含めない限り登録されます。
 - **引数**: `method` (GET/POST/PUT/DELETE/PATCH/HEAD), `path` (相対パス), `query?` (dict), `body?` (dict)
+- **パス基準**: `path` は `BITBUCKET_BASE_URL`（既定値の末尾は `/2.0`）を基準とする相対パスです。先頭の `/` は省略できます。
+- **応答制約**: 成功応答は JSON としてデコードして返し、本文が空の場合は `{}` を返します。非 JSON のテキスト/バイナリ応答はサポートしません。
 - **リードオンリー制限**: `BITBUCKET_READ_ONLY=true` の場合は、`GET` / `HEAD` のみが許可され、その他は `ToolError` を返します。
+
+### 5.8 `bitbucket_login`（常時登録）
+
+MCP クライアントからブラウザ OAuth の再ログインを開始する、引数なしのツールです。
+
+| 条件 | 戻り値 (`str`) |
+|---|---|
+| 既に認証済み | `既にログインしています。` |
+| ブラウザ認証を開始 | `Bitbucket 認証をブラウザで開始しました。同意後に操作を再実行してください。` |
+| 認証処理が既に進行中 | `認証処理中です。少し待って再実行してください。` |
+
+OAuth クライアントまたは資格情報ストアが利用できない場合、および未認証の headless 環境では、`bitbucket-mcp auth login --manual` を案内する `ToolError` を返します。
 
 ---
 
@@ -163,7 +192,7 @@ stdio トランスポートでは、保存済み資格情報または環境変�
 ### エラー情報のフォーマット:
 - API エラー発生時は、以下の形式で MCP `ToolError` に変換し返却します:
   `Bitbucket API {status_code}: {message} — {detail} [{hint}] (retry after {retry_after})`
-- レート制限 (`429`) 時は `X-RateLimit-Reset` を解析して `retry after` 情報を付加します。
+- レート制限 (`429`) の最終エラーでは、`Retry-After` ヘッダーが正の整数の場合のみ `(retry after <seconds>)` を付加します。`Retry-After` はエラーヒントにのみ使用し、内部リトライの待機時間は指数バックオフのままです。`X-RateLimit-Reset` は解析しません。
 
 ---
 
@@ -183,10 +212,12 @@ stdio トランスポートでは、保存済み資格情報または環境変�
 
 ここでいう **upstream OAuth** は、Bitbucket Cloud OAuth コンシューマを使って Bitbucket API へアクセスするための認証です。**transport OAuth 2.1** は、MCP の Streamable HTTP トランスポートに接続するクライアントを認証・認可する仕組みであり、upstream OAuth とは別の機能です。
 
+Streamable HTTP トランスポート自体は実装済みであり、Phase 2 の対象は Origin 検証と transport OAuth 2.1 によるセキュリティ強化です。
+
 | フェーズ | 対象スコープ | 主な機能・ツールセット |
 |---|---|---|
-| **Phase 1 (MVP)** | stdio トランスポート・基本認証・upstream OAuth | `context`, `repos`, `pull_requests`, `issues`, `pipelines`, `users`, `bitbucket_api`（実装完了） |
-| **Phase 2** | `workspaces` スコープの強化・トランスポート拡張 | `workspaces` ツールセット、Streamable HTTP トランスポート、transport OAuth 2.1（MCP クライアント認証）、Pipeline 変数管理 |
+| **Phase 1 (MVP)** | stdio・Streamable HTTP トランスポート、基本認証・upstream OAuth | `context`, `repos`, `pull_requests`, `issues`, `pipelines`, `users`, `bitbucket_api`（実装完了） |
+| **Phase 2** | `workspaces` スコープの強化・Streamable HTTP のセキュリティ強化 | `workspaces` ツールセット、Origin 検証、transport OAuth 2.1（MCP クライアント認証）、Pipeline 変数管理 |
 | **Phase 3** | 高度な管理機能および周辺リソースの操作 | `snippets`（スニペットCRUD）、`admin`（webhook/ブランチ制限/デフォルト査定者）、`deployments`（デプロイ環境の参照） |
 
 ---

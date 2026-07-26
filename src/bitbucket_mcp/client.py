@@ -111,6 +111,10 @@ class BitbucketClient:
             raise ToolError(
                 f"認証の更新に失敗しました。再ログインしてください。Run auth login. ({exc})"
             ) from exc
+        except httpx.HTTPError as exc:
+            raise ToolError(
+                "認証の更新中に通信エラーが発生しました。再ログインしてください。Run auth login."
+            ) from exc
         return {"Authorization": await self._authorization_header()}
 
     async def request(

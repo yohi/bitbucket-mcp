@@ -9,9 +9,12 @@ from collections.abc import Generator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
 
 from filelock import FileLock
+from pydantic import TypeAdapter, ValidationError
+
+_JSON_OBJECT = TypeAdapter(dict[str, object])
+_STRING_LIST = TypeAdapter(list[str])
 
 
 @dataclass(frozen=True)
@@ -39,7 +42,10 @@ class StoredCredentials:
     def from_dict(cls, data: object) -> StoredCredentials:
         if not isinstance(data, dict):
             raise ValueError("credentials data must be a JSON object")
-        payload = cast(dict[str, object], data)
+        try:
+            payload = _JSON_OBJECT.validate_python(data, strict=True)
+        except ValidationError as exc:
+            raise ValueError("credentials data must be a JSON object") from exc
 
         access_token = payload["access_token"]
         refresh_token = payload["refresh_token"]
@@ -54,12 +60,10 @@ class StoredCredentials:
             raise ValueError("credentials refresh_token must be a string")
         if not isinstance(expires_at, int) or isinstance(expires_at, bool):
             raise ValueError("credentials expires_at must be an integer")
-        if not isinstance(scopes, list):
-            raise ValueError("credentials scopes must be a list of strings")
-        raw_scopes = cast(list[object], scopes)
-        if not all(isinstance(scope, str) for scope in raw_scopes):
-            raise ValueError("credentials scopes must be a list of strings")
-        scopes = [cast(str, scope) for scope in raw_scopes]
+        try:
+            scopes = _STRING_LIST.validate_python(scopes, strict=True)
+        except ValidationError as exc:
+            raise ValueError("credentials scopes must be a list of strings") from exc
         if not isinstance(token_type, str):
             raise ValueError("credentials token_type must be a string")
         if not isinstance(client_id, str):

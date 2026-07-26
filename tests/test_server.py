@@ -4,7 +4,7 @@ from pydantic import SecretStr
 
 from bitbucket_mcp.auth import AuthConfigError
 from bitbucket_mcp.config import Settings
-from bitbucket_mcp.server import (  # pyright: ignore[reportPrivateUsage]
+from bitbucket_mcp.server import (
     create_server,
     make_lifespan,
 )
@@ -111,8 +111,7 @@ async def test_make_lifespan_passes_shared_auth_dependencies_and_shuts_down_cont
         async def aclose(self) -> None:
             pass
 
-    class FakeStore:
-        pass
+    store = object()
 
     class FakeOAuthClient:
         async def aclose(self) -> None:
@@ -128,8 +127,8 @@ async def test_make_lifespan_passes_shared_auth_dependencies_and_shuts_down_cont
     def fake_resolve_auth_provider(_settings: Settings) -> FakeProvider:
         return FakeProvider()
 
-    def fake_store(_path: object) -> FakeStore:
-        return FakeStore()
+    def fake_store(_path: object) -> object:
+        return store
 
     def fake_oauth_client(**_kwargs: object) -> FakeOAuthClient:
         return FakeOAuthClient()
@@ -150,6 +149,7 @@ async def test_make_lifespan_passes_shared_auth_dependencies_and_shuts_down_cont
     assert all("auth_provider" in item for item in captured)
     assert all("oauth_client" in item for item in captured)
     assert all("store" in item for item in captured)
+    assert all(item["store"] is store for item in captured)
     assert shutdown_called is True
 
 

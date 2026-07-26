@@ -1,4 +1,4 @@
-from typing import cast
+from pathlib import Path
 
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
@@ -7,11 +7,7 @@ from bitbucket_mcp.auth import AuthProvider
 from bitbucket_mcp.config import Settings
 from bitbucket_mcp.credentials import CredentialStore
 from bitbucket_mcp.oauth import OAuthClient
-from bitbucket_mcp.server import (  # pyright: ignore[reportPrivateUsage]
-    _bitbucket_login,  # pyright: ignore[reportPrivateUsage]
-    create_server,
-    make_lifespan,
-)
+from bitbucket_mcp.server import create_server, make_lifespan
 from bitbucket_mcp.toolsets._common import AutoLoginController
 
 
@@ -29,15 +25,33 @@ async def test_bitbucket_login_tool_registered(
 
 async def test_bitbucket_login_starts_browser_login_with_shared_dependencies(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    class FakeProvider:
+    import bitbucket_mcp.server as server
+
+    class FakeProvider(AuthProvider):
         def is_authenticated(self) -> bool:
             return False
 
-    provider = cast(AuthProvider, FakeProvider())
+        async def authorization_header(self) -> str:
+            return "Bearer test"
+
+        async def refresh(self) -> None:
+            pass
+
+        async def aclose(self) -> None:
+            pass
+
+    provider = FakeProvider()
     controller = AutoLoginController()
-    oauth_client = cast(OAuthClient, object())
-    store = cast(CredentialStore, object())
+    oauth_client = OAuthClient(
+        base_url="https://bitbucket.org",
+        client_id="cid",
+        client_secret="csec",
+        redirect_uri="http://127.0.0.1:8976/callback",
+        scopes=["account"],
+    )
+    store = CredentialStore(tmp_path / "creds.json")
     captured: list[object] = []
 
     def fake_start(coro: object) -> bool:
@@ -45,35 +59,47 @@ async def test_bitbucket_login_starts_browser_login_with_shared_dependencies(
         return True
 
     monkeypatch.setattr(controller, "start", fake_start)
-    monkeypatch.setattr("bitbucket_mcp.server._display_available", lambda: True)
+    monkeypatch.setattr("bitbucket_mcp.server.display_available", lambda: True)
 
-    assert _bitbucket_login(provider, controller, oauth_client, store) == (
-        "Bitbucket 認証をブラウザで開始しました。同意後に操作を再実行してください。"
-    )
-    assert len(captured) == 1
+    try:
+        assert server.bitbucket_login(provider, controller, oauth_client, store) == (
+            "Bitbucket 認証をブラウザで開始しました。同意後に操作を再実行してください。"
+        )
+        assert len(captured) == 1
+    finally:
+        await oauth_client.aclose()
 
 
 async def test_bitbucket_login_returns_already_logged_in() -> None:
-    class AlreadyLoggedInProvider:
+    import bitbucket_mcp.server as server
+
+    class AlreadyLoggedInProvider(AuthProvider):
         def is_authenticated(self) -> bool:
             return True
 
-    assert _bitbucket_login(
-        cast(AuthProvider, AlreadyLoggedInProvider()),
-        AutoLoginController(),
-        cast(OAuthClient, object()),
-        cast(CredentialStore, object()),
-    ) == "既にログインしています。"
+        async def authorization_header(self) -> str:
+            return "Bearer test"
+
+        async def refresh(self) -> None:
+            pass
+
+        async def aclose(self) -> None:
+            pass
+
+    assert (
+        server.bitbucket_login(AlreadyLoggedInProvider(), AutoLoginController(), None, None)
+        == "既にログインしています。"
+    )
 
 
 @pytest.mark.parametrize(
-    ("oauth_client", "store", "display_available", "message"),
+    ("has_oauth_client", "has_store", "display_available", "message"),
     [
-        (None, cast(CredentialStore, object()), True, "bitbucket-mcp auth login --manual"),
-        (cast(OAuthClient, object()), None, True, "bitbucket-mcp auth login --manual"),
+        (False, True, True, "bitbucket-mcp auth login --manual"),
+        (True, False, True, "bitbucket-mcp auth login --manual"),
         (
-            cast(OAuthClient, object()),
-            cast(CredentialStore, object()),
+            True,
+            True,
             False,
             "bitbucket-mcp auth login --manual",
         ),
@@ -81,18 +107,46 @@ async def test_bitbucket_login_returns_already_logged_in() -> None:
 )
 async def test_bitbucket_login_guides_manual_login_when_browser_login_unavailable(
     monkeypatch: pytest.MonkeyPatch,
-    oauth_client: OAuthClient | None,
-    store: CredentialStore | None,
+    tmp_path: Path,
+    has_oauth_client: bool,
+    has_store: bool,
     display_available: bool,
     message: str,
 ) -> None:
-    class FakeProvider:
+    import bitbucket_mcp.server as server
+
+    class FakeProvider(AuthProvider):
         def is_authenticated(self) -> bool:
             return False
 
-    monkeypatch.setattr("bitbucket_mcp.server._display_available", lambda: display_available)
+        async def authorization_header(self) -> str:
+            return "Bearer test"
 
-    fake_provider = cast(AuthProvider, FakeProvider())
+        async def refresh(self) -> None:
+            pass
+
+        async def aclose(self) -> None:
+            pass
+
+    oauth_client = (
+        OAuthClient(
+            base_url="https://bitbucket.org",
+            client_id="cid",
+            client_secret="csec",
+            redirect_uri="http://127.0.0.1:8976/callback",
+            scopes=["account"],
+        )
+        if has_oauth_client
+        else None
+    )
+    store = CredentialStore(tmp_path / "creds.json") if has_store else None
+    monkeypatch.setattr("bitbucket_mcp.server.display_available", lambda: display_available)
+
+    provider = FakeProvider()
     controller = AutoLoginController()
-    with pytest.raises(ToolError, match=message):
-        _bitbucket_login(fake_provider, controller, oauth_client, store)
+    try:
+        with pytest.raises(ToolError, match=message):
+            server.bitbucket_login(provider, controller, oauth_client, store)
+    finally:
+        if oauth_client is not None:
+            await oauth_client.aclose()

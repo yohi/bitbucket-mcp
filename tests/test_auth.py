@@ -183,21 +183,25 @@ def test_resolve_auth_header_keeps_static_compatibility() -> None:
     assert resolve_auth_header(settings) == "Bearer bear"
 
 
-def test_is_near_expiry_treats_zero_as_non_expiring() -> None:
+async def test_oauth_provider_returns_non_expiring_bearer_header(
+    tmp_path: Path,
+) -> None:
+    store = CredentialStore(tmp_path / "creds.json")
+    store.save(
+        StoredCredentials(
+            access_token="non-expiring-token",
+            refresh_token="r",
+            expires_at=0,
+            scopes=["account"],
+            token_type="bearer",
+            client_id="cid",
+            obtained_at=int(time.time()),
+        )
+    )
     provider = OAuthAuthProvider(
-        store=CredentialStore(Path("/dev/null")),
+        store=store,
         oauth_client=_oauth_client(),
         client_id="cid",
         client_secret=SecretStr("cs"),
     )
-    now = int(time.time())
-    creds = StoredCredentials(
-        access_token="a",
-        refresh_token="r",
-        expires_at=0,
-        scopes=["account"],
-        token_type="bearer",
-        client_id="cid",
-        obtained_at=now,
-    )
-    assert provider._is_near_expiry(creds) is False  # pyright: ignore[reportPrivateUsage]  # expires_at <= 0 means non-expiring
+    assert await provider.authorization_header() == "Bearer non-expiring-token"

@@ -40,7 +40,7 @@ uv run python -m bitbucket_mcp
    ```
 5. トークンは `BITBUCKET_CONFIG_DIR` → `XDG_CONFIG_HOME/bitbucket-mcp/credentials.json` → `~/.config/bitbucket-mcp/credentials.json` の順で決まる保存先に `0600` で保存されます。
 
-headless 環境では `bitbucket-mcp auth login --manual` を使用してください。
+headless 環境では `bitbucket-mcp auth login --manual` を使用してください。認可後は、リダイレクト URL に含まれる `code` と `state` をそれぞれプロンプトに貼り付けます。Callback URL に別のポートを登録した場合は、`--port PORT` を追加してください。
 
 ### CLI
 
@@ -48,7 +48,8 @@ headless 環境では `bitbucket-mcp auth login --manual` を使用してくだ�
 bitbucket-mcp                           # サーバ起動（stdio）
 bitbucket-mcp --transport http          # HTTP サーバ起動
 bitbucket-mcp auth login                # ブラウザ OAuth ログイン
-bitbucket-mcp auth login --manual       # 手動コード貼り付け
+bitbucket-mcp auth login --manual       # code/state を手動入力
+bitbucket-mcp auth login --manual --port 3000  # callback ポートを指定
 bitbucket-mcp auth status               # 保存済み資格情報を表示
 bitbucket-mcp auth logout               # 保存トークンを削除
 ```
@@ -70,7 +71,7 @@ bitbucket-mcp auth logout               # 保存トークンを削除
 | `BITBUCKET_CONFIG_DIR` | トークン保存ディレクトリ | `~/.config/bitbucket-mcp/` |
 | `BITBUCKET_OAUTH_BASE_URL` | authorize/token ホスト | `https://bitbucket.org` |
 
-`bitbucket_api`(汎用ツール）は `BITBUCKET_TOOLSETS` に関わらず常時登録される（`-bitbucket_api` を含めると除外）。
+`bitbucket_api`（汎用ツール）は `BITBUCKET_TOOLSETS` に関わらず既定で登録され、`-bitbucket_api` を含めると除外されます。
 
 ## CLI
 
@@ -79,7 +80,7 @@ bitbucket-mcp --transport {stdio,http} [--host HOST] [--port PORT]
 ```
 
 - `stdio`(既定）: ローカル・単一クライアント。Claude Desktop 等の標準導線。
-- `http`: Streamable HTTP（Phase2 で Origin 検証・OAuth 2.1 を強化予定）。
+- `http`: Streamable HTTP（実装済み。Phase 2 では Origin 検証と transport OAuth 2.1 によるセキュリティ強化を予定）。
 
 ## Claude Desktop 設定例
 
@@ -107,7 +108,8 @@ bitbucket-mcp --transport {stdio,http} [--host HOST] [--port PORT]
 - `issues`: イシューの参照・CRUD・コメント
 - `pipelines`: パイプラインの参照・実行・停止
 - `users`: get_user
-- `bitbucket_api`: 任意の REST 呼び出し（エスケープハッチ、常時）
+- `bitbucket_api`: `/2.0` を基準とする相対パスで任意の REST 呼び出しを行うエスケープハッチ。JSON 応答または空の応答のみ対応し、既定で登録される（`-bitbucket_api` で除外）
+- `bitbucket_login`: ブラウザ OAuth の再ログインを開始し、認証状態を `str` で返す常時登録ツール
 
 ---
 
