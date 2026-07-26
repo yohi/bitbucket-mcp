@@ -3,6 +3,7 @@ import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 from pytest_httpx import HTTPXMock
 
+from bitbucket_mcp.auth import AuthProvider, NotAuthenticatedError, StaticAuthProvider
 from bitbucket_mcp.client import BitbucketClient
 
 BASE_URL = "https://api.bitbucket.org/2.0"
@@ -10,14 +11,14 @@ BASE_URL = "https://api.bitbucket.org/2.0"
 
 def _client() -> BitbucketClient:
     return BitbucketClient(
-        base_url=BASE_URL, auth_header="Bearer test-token", backoff_base=0.0
+        base_url=BASE_URL,
+        auth_provider=StaticAuthProvider("Bearer test-token"),
+        backoff_base=0.0,
     )
 
 
 async def test_request_builds_url_and_injects_auth(httpx_mock: HTTPXMock) -> None:
-    httpx_mock.add_response(
-        url=f"{BASE_URL}/user", json={"username": "alice"}
-    )
+    httpx_mock.add_response(url=f"{BASE_URL}/user", json={"username": "alice"})
     client = _client()
     result = await client.request("GET", "/user")
     await client.aclose()
@@ -33,9 +34,7 @@ async def test_request_builds_url_and_injects_auth(httpx_mock: HTTPXMock) -> Non
 async def test_request_sends_query_and_json_body(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(json={"ok": True})
     client = _client()
-    await client.request(
-        "POST", "/x", query={"page": 2}, body={"title": "hi"}
-    )
+    await client.request("POST", "/x", query={"page": 2}, body={"title": "hi"})
     await client.aclose()
     request = httpx_mock.get_request()
     assert request is not None
@@ -64,9 +63,7 @@ async def test_empty_body_returns_empty_dict(httpx_mock: HTTPXMock) -> None:
 
 
 async def test_error_status_raises_tool_error(httpx_mock: HTTPXMock) -> None:
-    httpx_mock.add_response(
-        status_code=404, json={"error": {"message": "Not found"}}
-    )
+    httpx_mock.add_response(status_code=404, json={"error": {"message": "Not found"}})
     client = _client()
     with pytest.raises(ToolError, match="404"):
         await client.request("GET", "/missing")
@@ -102,6 +99,7 @@ async def test_retries_on_connect_error_for_get(monkeypatch: pytest.MonkeyPatch)
         params: dict[str, object] | None = None,
         json: dict[str, object] | None = None,
         data: dict[str, object] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> httpx.Response:
         nonlocal attempts
         attempts += 1
@@ -123,3 +121,100 @@ async def test_request_text_returns_raw_text(httpx_mock: HTTPXMock) -> None:
     result = await client.request_text("GET", "/diff/spec")
     await client.aclose()
     assert result == "diff --git a b"
+
+
+class _RefreshableProvider(AuthProvider):
+    def __init__(self) -> None:
+        self.header = "Bearer old"
+        self.refreshed = False
+
+    async def authorization_header(self) -> str:
+        return self.header
+
+    async def refresh(self) -> None:
+        self.refreshed = True
+        self.header = "Bearer new"
+
+    async def aclose(self) -> None:
+        pass
+
+    def is_authenticated(self) -> bool:
+        return True
+
+
+class _RefreshFailsProvider(AuthProvider):
+    async def authorization_header(self) -> str:
+        return "Bearer old"
+
+    async def refresh(self) -> None:
+        raise NotAuthenticatedError("更新に失敗しました")
+
+    async def aclose(self) -> None:
+        pass
+
+    def is_authenticated(self) -> bool:
+        return True
+
+
+async def test_401_triggers_refresh_and_retry(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(status_code=401, json={"error": {"message": "expired"}})
+    httpx_mock.add_response(status_code=200, json={"ok": True})
+    provider = _RefreshableProvider()
+    client = BitbucketClient(base_url=BASE_URL, auth_provider=provider, backoff_base=0.0)
+    result = await client.request("GET", "/x")
+    await client.aclose()
+    assert result == {"ok": True}
+    assert provider.refreshed is True
+    requests = httpx_mock.get_requests()
+    assert requests[1].headers["Authorization"] == "Bearer new"
+
+
+async def test_401_refresh_failure_raises_tool_error(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(status_code=401, json={"error": {"message": "expired"}})
+    client = BitbucketClient(
+        base_url=BASE_URL,
+        auth_provider=_RefreshFailsProvider(),
+        backoff_base=0.0,
+    )
+    with pytest.raises(ToolError, match="更新"):
+        await client.request("GET", "/x")
+    await client.aclose()
+
+
+async def test_401_after_refresh_raises_not_authenticated(
+    httpx_mock: HTTPXMock,
+) -> None:
+    httpx_mock.add_response(status_code=401, json={"error": {"message": "expired"}})
+    httpx_mock.add_response(status_code=401, json={"error": {"message": "still"}})
+    provider = _RefreshableProvider()
+    client = BitbucketClient(base_url=BASE_URL, auth_provider=provider, backoff_base=0.0)
+    with pytest.raises(ToolError, match="再ログイン"):
+        await client.request("GET", "/x")
+    await client.aclose()
+
+
+class _UnauthenticatedProvider(AuthProvider):
+    async def authorization_header(self) -> str:
+        raise NotAuthenticatedError("not logged in")
+
+    async def refresh(self) -> None:
+        return None
+
+    async def aclose(self) -> None:
+        pass
+
+    def is_authenticated(self) -> bool:
+        return False
+
+
+async def test_not_authenticated_converted_to_tool_error(
+    httpx_mock: HTTPXMock,
+) -> None:
+    client = BitbucketClient(
+        base_url=BASE_URL,
+        auth_provider=_UnauthenticatedProvider(),
+        backoff_base=0.0,
+    )
+    with pytest.raises(ToolError, match="auth login"):
+        await client.request("GET", "/x")
+    await client.aclose()

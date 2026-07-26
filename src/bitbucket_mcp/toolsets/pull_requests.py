@@ -1,18 +1,30 @@
 """pull_requests ツールセット: PR の参照・作成・更新・マージ・レビュー・コメント。"""
 
-from typing import Any, Literal
+from __future__ import annotations
+
+from functools import partial
+from typing import TYPE_CHECKING, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
-from mcp.types import ToolAnnotations
 
 from bitbucket_mcp.client import BitbucketClient
+from bitbucket_mcp.credentials import CredentialStore
 from bitbucket_mcp.models import InlineComment
-from bitbucket_mcp.pagination import page_params
-from bitbucket_mcp.toolsets._common import resolve_workspace
+from bitbucket_mcp.oauth import OAuthClient
+from bitbucket_mcp.toolsets._common import (
+    DESTRUCTIVE,
+    READ,
+    WRITE,
+    AutoLoginController,
+    build_body,
+    build_query,
+    create_toolset_context_from_register_args,
+    request_repo_json,
+    request_repo_text,
+)
 
-_READ = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
-_WRITE = ToolAnnotations(openWorldHint=True)
-_DESTRUCTIVE = ToolAnnotations(destructiveHint=True, openWorldHint=True)
+if TYPE_CHECKING:
+    from bitbucket_mcp.auth import AuthProvider
 
 
 def register(
@@ -21,7 +33,24 @@ def register(
     *,
     read_only: bool,
     default_workspace: str | None = None,
+    auth_provider: AuthProvider | None = None,
+    oauth_client: OAuthClient | None = None,
+    store: CredentialStore | None = None,
+    controller: AutoLoginController | None = None,
 ) -> None:
+    ctx = create_toolset_context_from_register_args(
+        mcp,
+        client,
+        read_only,
+        default_workspace,
+        auth_provider,
+        oauth_client,
+        store,
+        controller,
+    )
+    repo_json = partial(request_repo_json, ctx)
+    repo_text = partial(request_repo_text, ctx)
+
     async def list_pull_requests(
         *,
         workspace: str | None = None,
@@ -33,17 +62,8 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List pull requests, optionally filtered by state."""
-        ws = resolve_workspace(workspace, default_workspace)
-        query: dict[str, Any] = page_params(page, pagelen)
-        if state:
-            query["state"] = state
-        if q:
-            query["q"] = q
-        if sort:
-            query["sort"] = sort
-        return await client.request(
-            "GET", f"/repositories/{ws}/{repo_slug}/pullrequests", query=query
-        )
+        query = build_query(page, pagelen, state=state, q=q, sort=sort)
+        return await repo_json(workspace, "GET", repo_slug, "/pullrequests", query=query)
 
     async def get_pull_request(
         *,
@@ -62,20 +82,21 @@ def register(
         ] = "details",
     ) -> dict[str, Any]:
         """Get a pull request or one of its sub-resources."""
-        ws = resolve_workspace(workspace, default_workspace)
-        base = f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}"
         if action == "details":
-            return await client.request("GET", base)
+            return await repo_json(workspace, "GET", repo_slug, f"/pullrequests/{pull_request_id}")
         if action in ("diff", "patch"):
-            text = await client.request_text("GET", f"{base}/{action}")
+            suffix = f"/pullrequests/{pull_request_id}/{action}"
+            text = await repo_text(workspace, "GET", repo_slug, suffix)
             return {"content": text, "format": action}
-        return await client.request("GET", f"{base}/{action}")
+        suffix = f"/pullrequests/{pull_request_id}/{action}"
+        return await repo_json(workspace, "GET", repo_slug, suffix)
 
-    mcp.add_tool(list_pull_requests, annotations=_READ)
-    mcp.add_tool(get_pull_request, annotations=_READ)
-
-    if read_only:
-        return
+    ctx.register_tools(
+        read=[
+            (list_pull_requests, READ),
+            (get_pull_request, READ),
+        ]
+    )
 
     async def create_pull_request(
         *,
@@ -89,22 +110,17 @@ def register(
         close_source_branch: bool | None = None,
     ) -> dict[str, Any]:
         """Create a pull request."""
-        ws = resolve_workspace(workspace, default_workspace)
-        body: dict[str, Any] = {
-            "title": title,
-            "source": {"branch": {"name": source_branch}},
-        }
-        if destination_branch is not None:
-            body["destination"] = {"branch": {"name": destination_branch}}
-        if description:
-            body["description"] = description
-        if reviewers:
-            body["reviewers"] = [{"account_id": r} for r in reviewers]
-        if close_source_branch is not None:
-            body["close_source_branch"] = close_source_branch
-        return await client.request(
-            "POST", f"/repositories/{ws}/{repo_slug}/pullrequests", body=body
+        body = build_body(
+            title=title,
+            source={"branch": {"name": source_branch}},
+            destination=(
+                {"branch": {"name": destination_branch}} if destination_branch is not None else None
+            ),
+            description=description if description else None,
+            reviewers=([{"account_id": r} for r in reviewers] if reviewers else None),
+            close_source_branch=close_source_branch,
         )
+        return await repo_json(workspace, "POST", repo_slug, "/pullrequests", body=body)
 
     async def update_pull_request(
         *,
@@ -116,19 +132,13 @@ def register(
         destination_branch: str | None = None,
     ) -> dict[str, Any]:
         """Update a pull request's title, description, or destination."""
-        ws = resolve_workspace(workspace, default_workspace)
-        body: dict[str, Any] = {}
-        if title is not None:
-            body["title"] = title
-        if description is not None:
-            body["description"] = description
-        if destination_branch:
-            body["destination"] = {"branch": {"name": destination_branch}}
-        return await client.request(
-            "PUT",
-            f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}",
-            body=body,
+        body = build_body(
+            title=title,
+            description=description,
+            destination=({"branch": {"name": destination_branch}} if destination_branch else None),
         )
+        suffix = f"/pullrequests/{pull_request_id}"
+        return await repo_json(workspace, "PUT", repo_slug, suffix, body=body)
 
     async def merge_pull_request(
         *,
@@ -140,19 +150,13 @@ def register(
         close_source_branch: bool | None = None,
     ) -> dict[str, Any]:
         """Merge a pull request. Destructive."""
-        ws = resolve_workspace(workspace, default_workspace)
-        body: dict[str, Any] = {}
-        if merge_strategy:
-            body["merge_strategy"] = merge_strategy
-        if message:
-            body["message"] = message
-        if close_source_branch is not None:
-            body["close_source_branch"] = close_source_branch
-        return await client.request(
-            "POST",
-            f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}/merge",
-            body=body,
+        body = build_body(
+            merge_strategy=merge_strategy if merge_strategy else None,
+            message=message if message else None,
+            close_source_branch=close_source_branch,
         )
+        suffix = f"/pullrequests/{pull_request_id}/merge"
+        return await repo_json(workspace, "POST", repo_slug, suffix, body=body)
 
     async def decline_pull_request(
         *,
@@ -161,33 +165,21 @@ def register(
         pull_request_id: int,
     ) -> dict[str, Any]:
         """Decline a pull request."""
-        ws = resolve_workspace(workspace, default_workspace)
-        return await client.request(
-            "POST",
-            f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}/decline",
-        )
+        suffix = f"/pullrequests/{pull_request_id}/decline"
+        return await repo_json(workspace, "POST", repo_slug, suffix)
 
     async def review_pull_request(
         *,
         workspace: str | None = None,
         repo_slug: str,
         pull_request_id: int,
-        action: Literal[
-            "approve", "unapprove", "request_changes", "unrequest_changes"
-        ],
+        action: Literal["approve", "unapprove", "request_changes", "unrequest_changes"],
     ) -> dict[str, Any]:
         """Approve/unapprove or request/unrequest changes on a pull request."""
-        ws = resolve_workspace(workspace, default_workspace)
-        base = (
-            f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}"
-        )
-        endpoint = (
-            "approve"
-            if action in ("approve", "unapprove")
-            else "request-changes"
-        )
+        endpoint = "approve" if action in ("approve", "unapprove") else "request-changes"
         method = "POST" if action in ("approve", "request_changes") else "DELETE"
-        return await client.request(method, f"{base}/{endpoint}")
+        suffix = f"/pullrequests/{pull_request_id}/{endpoint}"
+        return await repo_json(workspace, method, repo_slug, suffix)
 
     async def add_pull_request_comment(
         *,
@@ -198,19 +190,19 @@ def register(
         inline: InlineComment | None = None,
     ) -> dict[str, Any]:
         """Add a comment (optionally inline) to a pull request."""
-        ws = resolve_workspace(workspace, default_workspace)
         body: dict[str, Any] = {"content": {"raw": content}}
         if inline is not None:
             body["inline"] = {"path": inline.path, "to": inline.to}
-        return await client.request(
-            "POST",
-            f"/repositories/{ws}/{repo_slug}/pullrequests/{pull_request_id}/comments",
-            body=body,
-        )
+        suffix = f"/pullrequests/{pull_request_id}/comments"
+        return await repo_json(workspace, "POST", repo_slug, suffix, body=body)
 
-    mcp.add_tool(create_pull_request, annotations=_WRITE)
-    mcp.add_tool(update_pull_request, annotations=_WRITE)
-    mcp.add_tool(merge_pull_request, annotations=_DESTRUCTIVE)
-    mcp.add_tool(decline_pull_request, annotations=_WRITE)
-    mcp.add_tool(review_pull_request, annotations=_WRITE)
-    mcp.add_tool(add_pull_request_comment, annotations=_WRITE)
+    ctx.register_tools(
+        write=[
+            (create_pull_request, WRITE),
+            (update_pull_request, WRITE),
+            (decline_pull_request, WRITE),
+            (review_pull_request, WRITE),
+            (add_pull_request_comment, WRITE),
+        ],
+        destructive=[(merge_pull_request, DESTRUCTIVE)],
+    )

@@ -1,9 +1,32 @@
 """環境変数によるサーバー設定。"""
 
+from pathlib import Path
+from urllib.parse import urlparse
+
 from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from bitbucket_mcp.toolsets import DEFAULT_TOOLSETS
+
+_READ_SCOPES = ["account", "repository", "pullrequest", "issue", "pipeline"]
+_WRITE_TOOLSET_SCOPES: dict[str, list[str]] = {
+    "repos": ["repository:write"],
+    "pull_requests": ["pullrequest:write"],
+    "issues": ["issue:write"],
+    "pipelines": ["pipeline:write"],
+}
+
+
+def validate_bitbucket_https_url(value: str) -> str:
+    parsed = urlparse(value)
+    hostname = parsed.hostname
+    if (
+        parsed.scheme != "https"
+        or hostname is None
+        or (hostname != "bitbucket.org" and not hostname.endswith(".bitbucket.org"))
+    ):
+        raise ValueError("base_url must use https and be under bitbucket.org")
+    return value.rstrip("/")
 
 
 class Settings(BaseSettings):
@@ -18,6 +41,11 @@ class Settings(BaseSettings):
     toolsets: str = ",".join(DEFAULT_TOOLSETS)
     read_only: bool = False
     base_url: str = "https://api.bitbucket.org/2.0"
+    oauth_client_id: str | None = None
+    oauth_client_secret: SecretStr | None = None
+    oauth_callback_port: int = 8976
+    oauth_base_url: str = "https://bitbucket.org"
+    config_dir: Path | None = None
 
     @field_validator("toolsets")
     @classmethod
@@ -29,6 +57,31 @@ class Settings(BaseSettings):
             raise ValueError(f"unknown toolset(s): {', '.join(unknown)}")
         return value
 
+    @field_validator("oauth_base_url")
+    @classmethod
+    def validate_oauth_base_url(cls, value: str) -> str:
+        return validate_bitbucket_https_url(value)
+
+    @field_validator("oauth_callback_port")
+    @classmethod
+    def validate_oauth_callback_port(cls, value: int) -> int:
+        if not 1 <= value <= 65535:
+            raise ValueError("oauth_callback_port must be 1-65535")
+        return value
+
     @property
     def toolset_list(self) -> list[str]:
         return [item.strip() for item in self.toolsets.split(",") if item.strip()]
+
+    def oauth_scopes(self) -> list[str]:
+        """有効な toolset と read_only に応じた OAuth scope リストを返す。"""
+        scopes = list(_READ_SCOPES)
+        if self.read_only:
+            return scopes
+        requested = set(self.toolset_list)
+        for toolset, write_scopes in _WRITE_TOOLSET_SCOPES.items():
+            if toolset in requested:
+                for scope in write_scopes:
+                    if scope not in scopes:
+                        scopes.append(scope)
+        return scopes
