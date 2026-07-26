@@ -27,19 +27,18 @@
 
 ## 3. 認証仕様
 
-stdio トランスポートでは、環境変数によるトークンの注入を行います。
+stdio トランスポートでは、保存済み資格情報または環境変数から認証情報を解決します。
 
-### 認証方式の解決優先順位:
-1. `BITBUCKET_EMAIL` + `BITBUCKET_API_TOKEN` が設定されている場合:
-   - **Basic 認証** (`Authorization: Basic base64(email:api_token)`) を使用。
-2. `BITBUCKET_TOKEN` (Access Token / Bearer トークン) が設定されている場合:
-   - **Bearer 認証** (`Authorization: Bearer <token>`) を使用。
-3. どちらも設定されていない場合:
-   - 起動時に `AuthConfigError` を送出してプロセスを終了。
+### 認証解決順序
+
+1. 保存済み OAuth トークン（`BITBUCKET_OAUTH_CLIENT_ID` と `BITBUCKET_OAUTH_CLIENT_SECRET` が両方設定され、保存済み `client_id` が `BITBUCKET_OAUTH_CLIENT_ID` と一致）
+2. `BITBUCKET_EMAIL` + `BITBUCKET_API_TOKEN`（Basic）
+3. `BITBUCKET_TOKEN`（Bearer）
+4. `BITBUCKET_OAUTH_CLIENT_ID`/`SECRET` のみ設定済み → サーバ起動は可能だが未認証。ディスプレイ環境では最初のツール呼び出しでブラウザ OAuth をバックグラウンド起動し、再実行を案内する。headless 環境では `ToolError` を返し、`bitbucket-mcp auth login --manual` を案内する
+5. 何もなし → 起動時 `AuthConfigError`
 
 > [!WARNING]
-> **App Password は非対応です** (2026年7月28日に完全廃止されたため)。
-> 起動時に検知した場合は「App Password は廃止済み。API Token または Access Token を使用せよ」というエラーを発生させます。
+> **App Password は非対応です**（2026年7月28日に完全廃止予定）。API Token または Access Token を使用してください。
 
 ---
 
@@ -54,6 +53,11 @@ stdio トランスポートでは、環境変数によるトークンの注入�
 | `BITBUCKET_TOOLSETS` | 有効化するツールセットのカンマ区切りリスト | `context,repos,pull_requests,issues,pipelines,users` |
 | `BITBUCKET_READ_ONLY` | `true` の場合、書き込み/破壊ツールを一括で除外登録する | `false` |
 | `BITBUCKET_BASE_URL` | API ベース URL | `https://api.bitbucket.org/2.0` |
+| `BITBUCKET_OAUTH_CLIENT_ID` | Bitbucket Cloud OAuth コンシューマの client_id | (なし) |
+| `BITBUCKET_OAUTH_CLIENT_SECRET` | Bitbucket Cloud OAuth コンシューマの client_secret | (なし) |
+| `BITBUCKET_OAUTH_CALLBACK_PORT` | OAuth loopback callback の待受ポート | `8976` |
+| `BITBUCKET_CONFIG_DIR` | 保存済み OAuth トークンのディレクトリ | `~/.config/bitbucket-mcp/` |
+| `BITBUCKET_OAUTH_BASE_URL` | OAuth authorize/token ホスト | `https://bitbucket.org` |
 
 ---
 
@@ -177,10 +181,12 @@ stdio トランスポートでは、環境変数によるトークンの注入�
 
 本サーバーは段階的な機能拡張を想定しています。MVP（Phase 1）以降のロードマップは以下の通りです。
 
+ここでいう **upstream OAuth** は、Bitbucket Cloud OAuth コンシューマを使って Bitbucket API へアクセスするための認証です。**transport OAuth 2.1** は、MCP の Streamable HTTP トランスポートに接続するクライアントを認証・認可する仕組みであり、upstream OAuth とは別の機能です。
+
 | フェーズ | 対象スコープ | 主な機能・ツールセット |
 |---|---|---|
-| **Phase 1 (MVP)** | stdio トランスポート・基本認証 | `context`, `repos`, `pull_requests`, `issues`, `pipelines`, `users`, `bitbucket_api`（実装完了） |
-| **Phase 2** | `workspaces` スコープの強化・トランスポート拡張 | `workspaces` ツールセット、Streamable HTTP トランスポート、OAuth 2.1 認証、Pipeline 変数管理 |
+| **Phase 1 (MVP)** | stdio トランスポート・基本認証・upstream OAuth | `context`, `repos`, `pull_requests`, `issues`, `pipelines`, `users`, `bitbucket_api`（実装完了） |
+| **Phase 2** | `workspaces` スコープの強化・トランスポート拡張 | `workspaces` ツールセット、Streamable HTTP トランスポート、transport OAuth 2.1（MCP クライアント認証）、Pipeline 変数管理 |
 | **Phase 3** | 高度な管理機能および周辺リソースの操作 | `snippets`（スニペットCRUD）、`admin`（webhook/ブランチ制限/デフォルト査定者）、`deployments`（デプロイ環境の参照） |
 
 ---
@@ -198,4 +204,3 @@ stdio トランスポートでは、環境変数によるトークンの注入�
 ### ライブ疎通テスト (Live Verification)
 - 実際の Bitbucket Cloud 環境に対する疎通テストをサポートしています。
 - 環境変数 `BITBUCKET_TEST_LIVE=1` を設定することで、モックを使用しない実機接続テスト（スモークテスト）を有効化できます。実行には適切な環境変数（`BITBUCKET_TOKEN` または Basic 認証情報）が必要です。
-
