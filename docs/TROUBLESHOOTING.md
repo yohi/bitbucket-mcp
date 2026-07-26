@@ -43,7 +43,7 @@ bitbucket-mcp auth login
 
 ### `NotAuthenticatedError: 再ログインが必要です`
 
-**原因**: refresh_token が失効（3ヶ月経過）または無効化された。
+**原因**: refresh_token が失効（3ヶ月間未使用）または無効化された。
 
 **解決方法**:
 
