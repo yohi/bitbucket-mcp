@@ -436,7 +436,7 @@ def oauth_flow_error(message: str) -> Exception:
         ),
         (
             RuntimeError("client_secret=client-secret credential_payload={'access_token': 'x'}"),
-            "Unexpected error during automatic login",
+            "Unexpected error during automatic login (RuntimeError)",
         ),
     ],
 )

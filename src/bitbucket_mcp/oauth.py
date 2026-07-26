@@ -262,6 +262,10 @@ class OAuthCallbackServer:
         return value[0]
 
     async def wait_callback(self) -> tuple[str, str | None]:
+        """コールバックを待機する。
+
+        全体タイムアウトは設定しないため、呼び出し側で `asyncio.timeout()` などを使用する。
+        """
         await self._event.wait()
         if self._error:
             raise OAuthFlowError(f"OAuth callback error: {self._error}")

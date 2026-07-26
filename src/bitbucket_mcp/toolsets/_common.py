@@ -67,8 +67,8 @@ class AutoLoginController:
             logger.warning("Automatic login timed out")
         except OAuthFlowError:
             logger.warning("Automatic login OAuth flow failed")
-        except Exception:
-            logger.error("Unexpected error during automatic login")
+        except Exception as exc:  # noqa: BLE001, RUF100
+            logger.error("Unexpected error during automatic login (%s)", type(exc).__name__)
 
     async def shutdown(self) -> None:
         if self._task is not None and not self._task.done():
@@ -82,6 +82,11 @@ async def perform_auto_login(
     oauth_client: OAuthClient,
     store: CredentialStore,
 ) -> None:
+    """ブラウザOAuthログインを実行する。
+
+    全体タイムアウトは設定しないため、呼び出し側で `asyncio.timeout()` などを使用する。
+    本番では `AutoLoginController` 経由で呼び出す。
+    """
     server: OAuthCallbackServer | None = None
     try:
         parsed = urllib.parse.urlparse(oauth_client.redirect_uri)
