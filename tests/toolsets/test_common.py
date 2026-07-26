@@ -8,6 +8,7 @@ import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
+from _asyncio_helpers import FakeTimeout, forbidden_wait_for
 from bitbucket_mcp.auth import AuthConfigError, AuthProvider, StaticAuthProvider
 from bitbucket_mcp.credentials import CredentialStore
 from bitbucket_mcp.oauth import OAuthClient, OAuthTokenResponse
@@ -500,29 +501,8 @@ async def test_auto_login_uses_caller_owned_timeout(
     import logging
 
     caplog.set_level(logging.WARNING, logger="bitbucket_mcp.toolsets._common")
-    captured_timeout: float | None = None
-
-    class FakeTimeout:
-        def __init__(self, timeout: float) -> None:
-            nonlocal captured_timeout
-            captured_timeout = timeout
-
-        async def __aenter__(self) -> "FakeTimeout":
-            return self
-
-        async def __aexit__(self, exc_type: object, exc: object, tb: object) -> bool:
-            del exc_type, exc, tb
-            raise TimeoutError
-
-    def forbidden_wait_for(*args: object, **kwargs: object) -> None:
-        del args, kwargs
-        raise AssertionError("caller-owned timeout must not use asyncio.wait_for")
-
-    def fake_timeout(timeout: float) -> FakeTimeout:
-        return FakeTimeout(timeout)
-
     monkeypatch.setattr("bitbucket_mcp.toolsets._common.asyncio.wait_for", forbidden_wait_for)
-    monkeypatch.setattr("bitbucket_mcp.toolsets._common.asyncio.timeout", fake_timeout)
+    monkeypatch.setattr("bitbucket_mcp.toolsets._common.asyncio.timeout", FakeTimeout)
 
     controller = AutoLoginController()
 
@@ -533,7 +513,7 @@ async def test_auto_login_uses_caller_owned_timeout(
     await asyncio.sleep(0)
     await asyncio.sleep(0)
 
-    assert captured_timeout == 300
+    assert FakeTimeout.last_timeout == 300
     assert controller.is_running() is False
     assert [record.getMessage() for record in caplog.records] == ["Automatic login timed out"]
 

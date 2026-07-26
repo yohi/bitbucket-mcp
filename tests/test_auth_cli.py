@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from _asyncio_helpers import FakeTimeout, forbidden_wait_for
 from bitbucket_mcp import __main__ as entry
 from bitbucket_mcp.credentials import CredentialStore
 from bitbucket_mcp.oauth import OAuthTokenResponse
@@ -112,8 +113,6 @@ def test_browser_login_times_out_after_300_seconds_and_cleans_up(
     monkeypatch.setattr(entry.webbrowser, "open", fake_browser_open)
     callback_closed = False
     client_closed = False
-    captured_timeout: float | None = None
-
     class FakeOAuthClient:
         def __init__(
             self,
@@ -152,25 +151,7 @@ def test_browser_login_times_out_after_300_seconds_and_cleans_up(
             nonlocal callback_closed
             callback_closed = True
 
-    class FakeTimeout:
-        def __init__(self, timeout: float) -> None:
-            nonlocal captured_timeout
-            captured_timeout = timeout
-
-        async def __aenter__(self) -> "FakeTimeout":
-            return self
-
-        async def __aexit__(self, exc_type: object, exc: object, tb: object) -> bool:
-            del exc_type, exc, tb
-            raise TimeoutError
-
-    def forbidden_wait_for(*args: object, **kwargs: object) -> None:
-        del args, kwargs
-        raise AssertionError("caller-owned timeout must not use asyncio.wait_for")
-
     def fake_timeout(timeout: float) -> FakeTimeout:
-        nonlocal captured_timeout
-        captured_timeout = timeout
         return FakeTimeout(timeout)
 
     monkeypatch.setattr(entry, "OAuthClient", FakeOAuthClient)
@@ -182,7 +163,7 @@ def test_browser_login_times_out_after_300_seconds_and_cleans_up(
     captured = capsys.readouterr()
     assert "タイムアウト" in captured.err
     assert "auth login" in captured.err
-    assert captured_timeout == 300
+    assert FakeTimeout.last_timeout == 300
     assert callback_closed is True
     assert client_closed is True
 
