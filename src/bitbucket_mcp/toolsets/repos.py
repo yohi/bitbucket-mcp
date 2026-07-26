@@ -1,18 +1,30 @@
 """repos ツールセット: リポジトリ・コミット・ブランチ・タグ・差分。"""
 
-from typing import Any, Literal
+from __future__ import annotations
+
+from functools import partial
+from typing import TYPE_CHECKING, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
-from mcp.types import ToolAnnotations
 
 from bitbucket_mcp.client import BitbucketClient
-from bitbucket_mcp.pagination import page_params
-from bitbucket_mcp.toolsets._common import resolve_workspace
+from bitbucket_mcp.credentials import CredentialStore
+from bitbucket_mcp.oauth import OAuthClient
+from bitbucket_mcp.toolsets._common import (
+    DESTRUCTIVE,
+    READ,
+    WRITE,
+    AutoLoginController,
+    build_body,
+    build_query,
+    create_toolset_context_from_register_args,
+    request_repo_json,
+    request_repo_text,
+)
 
-_READ = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
-_WRITE = ToolAnnotations(openWorldHint=True)
-_DESTRUCTIVE = ToolAnnotations(destructiveHint=True, openWorldHint=True)
+if TYPE_CHECKING:
+    from bitbucket_mcp.auth import AuthProvider
 
 
 def register(
@@ -21,7 +33,24 @@ def register(
     *,
     read_only: bool,
     default_workspace: str | None = None,
+    auth_provider: AuthProvider | None = None,
+    oauth_client: OAuthClient | None = None,
+    store: CredentialStore | None = None,
+    controller: AutoLoginController | None = None,
 ) -> None:
+    ctx = create_toolset_context_from_register_args(
+        mcp,
+        client,
+        read_only,
+        default_workspace,
+        auth_provider,
+        oauth_client,
+        store,
+        controller,
+    )
+    repo_json = partial(request_repo_json, ctx)
+    repo_text = partial(request_repo_text, ctx)
+
     async def list_repositories(
         *,
         workspace: str | None = None,
@@ -32,22 +61,17 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List repositories in a workspace."""
-        ws = resolve_workspace(workspace, default_workspace)
-        query: dict[str, Any] = page_params(page, pagelen)
-        if q:
-            query["q"] = q
-        if sort:
-            query["sort"] = sort
-        if role:
-            query["role"] = role
-        return await client.request("GET", f"/repositories/{ws}", query=query)
+        query = build_query(page, pagelen, q=q, sort=sort, role=role)
+        return await ctx.request_json(
+            workspace,
+            "GET",
+            "/repositories/{ws}",
+            query=query,
+        )
 
-    async def get_repository(
-        *, workspace: str | None = None, repo_slug: str
-    ) -> dict[str, Any]:
+    async def get_repository(*, workspace: str | None = None, repo_slug: str) -> dict[str, Any]:
         """Get a single repository's metadata."""
-        ws = resolve_workspace(workspace, default_workspace)
-        return await client.request("GET", f"/repositories/{ws}/{repo_slug}")
+        return await repo_json(workspace, "GET", repo_slug, "")
 
     async def get_file_or_directory(
         *,
@@ -58,15 +82,9 @@ def register(
         page: int | None = None,
     ) -> dict[str, Any]:
         """Get file contents or a directory listing at a commit."""
-        ws = resolve_workspace(workspace, default_workspace)
-        query: dict[str, Any] = {}
-        if page is not None:
-            query["page"] = page
-        text = await client.request_text(
-            "GET",
-            f"/repositories/{ws}/{repo_slug}/src/{commit}/{path}",
-            query=query or None,
-        )
+        query = build_query(page)
+        suffix = f"/src/{commit}/{path}"
+        text = await repo_text(workspace, "GET", repo_slug, suffix, query=query)
         return {"content": text}
 
     async def list_commits(
@@ -79,23 +97,15 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List commits, optionally scoped to a revision or path."""
-        ws = resolve_workspace(workspace, default_workspace)
-        query: dict[str, Any] = page_params(page, pagelen)
-        if path:
-            query["path"] = path
-        endpoint = f"/repositories/{ws}/{repo_slug}/commits"
-        if revision:
-            endpoint = f"{endpoint}/{revision}"
-        return await client.request("GET", endpoint, query=query or None)
+        query = build_query(page, pagelen, path=path)
+        suffix = "/commits" + (f"/{revision}" if revision else "")
+        return await repo_json(workspace, "GET", repo_slug, suffix, query=query)
 
     async def get_commit(
         *, workspace: str | None = None, repo_slug: str, commit: str
     ) -> dict[str, Any]:
         """Get a single commit by hash."""
-        ws = resolve_workspace(workspace, default_workspace)
-        return await client.request(
-            "GET", f"/repositories/{ws}/{repo_slug}/commit/{commit}"
-        )
+        return await repo_json(workspace, "GET", repo_slug, f"/commit/{commit}")
 
     async def get_diff(
         *,
@@ -105,11 +115,9 @@ def register(
         action: Literal["diff", "diffstat", "patch"] = "diff",
     ) -> dict[str, Any]:
         """Get a diff, diffstat, or patch for a commit spec (e.g. 'a..b')."""
-        ws = resolve_workspace(workspace, default_workspace)
-        base = f"/repositories/{ws}/{repo_slug}"
         if action == "diffstat":
-            return await client.request("GET", f"{base}/diffstat/{spec}")
-        text = await client.request_text("GET", f"{base}/{action}/{spec}")
+            return await repo_json(workspace, "GET", repo_slug, f"/diffstat/{spec}")
+        text = await repo_text(workspace, "GET", repo_slug, f"/{action}/{spec}")
         return {"content": text, "format": action}
 
     async def list_branches(
@@ -122,15 +130,8 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List branches in a repository."""
-        ws = resolve_workspace(workspace, default_workspace)
-        query: dict[str, Any] = page_params(page, pagelen)
-        if q:
-            query["q"] = q
-        if sort:
-            query["sort"] = sort
-        return await client.request(
-            "GET", f"/repositories/{ws}/{repo_slug}/refs/branches", query=query
-        )
+        query = build_query(page, pagelen, q=q, sort=sort)
+        return await repo_json(workspace, "GET", repo_slug, "/refs/branches", query=query)
 
     async def list_tags(
         *,
@@ -142,27 +143,21 @@ def register(
         pagelen: int | None = None,
     ) -> dict[str, Any]:
         """List tags in a repository."""
-        ws = resolve_workspace(workspace, default_workspace)
-        query: dict[str, Any] = page_params(page, pagelen)
-        if q:
-            query["q"] = q
-        if sort:
-            query["sort"] = sort
-        return await client.request(
-            "GET", f"/repositories/{ws}/{repo_slug}/refs/tags", query=query
-        )
+        query = build_query(page, pagelen, q=q, sort=sort)
+        return await repo_json(workspace, "GET", repo_slug, "/refs/tags", query=query)
 
-    mcp.add_tool(list_repositories, annotations=_READ)
-    mcp.add_tool(get_repository, annotations=_READ)
-    mcp.add_tool(get_file_or_directory, annotations=_READ)
-    mcp.add_tool(list_commits, annotations=_READ)
-    mcp.add_tool(get_commit, annotations=_READ)
-    mcp.add_tool(get_diff, annotations=_READ)
-    mcp.add_tool(list_branches, annotations=_READ)
-    mcp.add_tool(list_tags, annotations=_READ)
-
-    if read_only:
-        return
+    ctx.register_tools(
+        read=[
+            (list_repositories, READ),
+            (get_repository, READ),
+            (get_file_or_directory, READ),
+            (list_commits, READ),
+            (get_commit, READ),
+            (get_diff, READ),
+            (list_branches, READ),
+            (list_tags, READ),
+        ]
+    )
 
     async def create_repository(
         *,
@@ -173,22 +168,16 @@ def register(
         scm: str = "git",
     ) -> dict[str, Any]:
         """Create a new repository."""
-        ws = resolve_workspace(workspace, default_workspace)
-        body: dict[str, Any] = {"scm": scm, "is_private": is_private}
-        if project_key:
-            body["project"] = {"key": project_key}
-        return await client.request(
-            "POST", f"/repositories/{ws}/{repo_slug}", body=body
+        body = build_body(
+            scm=scm,
+            is_private=is_private,
+            project={"key": project_key} if project_key else None,
         )
+        return await repo_json(workspace, "POST", repo_slug, "", body=body)
 
-    async def delete_repository(
-        *, workspace: str | None = None, repo_slug: str
-    ) -> dict[str, Any]:
+    async def delete_repository(*, workspace: str | None = None, repo_slug: str) -> dict[str, Any]:
         """Delete a repository. Destructive."""
-        ws = resolve_workspace(workspace, default_workspace)
-        return await client.request(
-            "DELETE", f"/repositories/{ws}/{repo_slug}"
-        )
+        return await repo_json(workspace, "DELETE", repo_slug, "")
 
     async def fork_repository(
         *,
@@ -198,15 +187,11 @@ def register(
         name: str | None = None,
     ) -> dict[str, Any]:
         """Fork a repository."""
-        ws = resolve_workspace(workspace, default_workspace)
-        body: dict[str, Any] = {}
-        if name:
-            body["name"] = name
-        if target_workspace:
-            body["workspace"] = {"slug": target_workspace}
-        return await client.request(
-            "POST", f"/repositories/{ws}/{repo_slug}/forks", body=body
+        body = build_body(
+            name=name if name else None,
+            workspace={"slug": target_workspace} if target_workspace else None,
         )
+        return await repo_json(workspace, "POST", repo_slug, "/forks", body=body)
 
     async def create_commit(
         *,
@@ -217,7 +202,6 @@ def register(
         branch: str | None = None,
     ) -> dict[str, Any]:
         """Create a commit by writing files on a branch."""
-        ws = resolve_workspace(workspace, default_workspace)
         reserved_fields = {"message", "branch"}
         conflict = reserved_fields.intersection(files)
         if conflict:
@@ -228,45 +212,38 @@ def register(
             form["branch"] = branch
         for file_path, content in files.items():
             form[file_path] = content
-        return await client.request(
-            "POST", f"/repositories/{ws}/{repo_slug}/src", form=form
-        )
+        return await repo_json(workspace, "POST", repo_slug, "/src", form=form)
 
     async def create_branch(
         *, workspace: str | None = None, repo_slug: str, name: str, target: str
     ) -> dict[str, Any]:
         """Create a branch pointing at a target commit hash."""
-        ws = resolve_workspace(workspace, default_workspace)
-        return await client.request(
-            "POST",
-            f"/repositories/{ws}/{repo_slug}/refs/branches",
-            body={"name": name, "target": {"hash": target}},
-        )
+        body = {"name": name, "target": {"hash": target}}
+        return await repo_json(workspace, "POST", repo_slug, "/refs/branches", body=body)
 
     async def delete_branch(
         *, workspace: str | None = None, repo_slug: str, name: str
     ) -> dict[str, Any]:
         """Delete a branch. Destructive."""
-        ws = resolve_workspace(workspace, default_workspace)
-        return await client.request(
-            "DELETE", f"/repositories/{ws}/{repo_slug}/refs/branches/{name}"
-        )
+        return await repo_json(workspace, "DELETE", repo_slug, f"/refs/branches/{name}")
 
     async def create_tag(
         *, workspace: str | None = None, repo_slug: str, name: str, target: str
     ) -> dict[str, Any]:
         """Create a tag pointing at a target commit hash."""
-        ws = resolve_workspace(workspace, default_workspace)
-        return await client.request(
-            "POST",
-            f"/repositories/{ws}/{repo_slug}/refs/tags",
-            body={"name": name, "target": {"hash": target}},
-        )
+        body = {"name": name, "target": {"hash": target}}
+        return await repo_json(workspace, "POST", repo_slug, "/refs/tags", body=body)
 
-    mcp.add_tool(create_repository, annotations=_WRITE)
-    mcp.add_tool(delete_repository, annotations=_DESTRUCTIVE)
-    mcp.add_tool(fork_repository, annotations=_WRITE)
-    mcp.add_tool(create_commit, annotations=_WRITE)
-    mcp.add_tool(create_branch, annotations=_WRITE)
-    mcp.add_tool(delete_branch, annotations=_DESTRUCTIVE)
-    mcp.add_tool(create_tag, annotations=_WRITE)
+    ctx.register_tools(
+        write=[
+            (create_repository, WRITE),
+            (fork_repository, WRITE),
+            (create_commit, WRITE),
+            (create_branch, WRITE),
+            (create_tag, WRITE),
+        ],
+        destructive=[
+            (delete_repository, DESTRUCTIVE),
+            (delete_branch, DESTRUCTIVE),
+        ],
+    )
