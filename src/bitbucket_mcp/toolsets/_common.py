@@ -62,7 +62,7 @@ class AutoLoginController:
             async with asyncio.timeout(self._TIMEOUT_SECONDS):
                 await coro()
         except asyncio.CancelledError:
-            return None
+            raise
         except TimeoutError:
             logger.warning("Automatic login timed out")
         except OAuthFlowError:

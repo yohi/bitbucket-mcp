@@ -570,13 +570,11 @@ async def test_auto_login_closes_callback_server_when_start_fails(
         redirect_uri="http://127.0.0.1:0/callback",
         scopes=["account"],
     )
+    provider = StaticAuthProvider("Bearer x")
+    store = CredentialStore(tmp_path / "creds.json")
     try:
         with pytest.raises(OAuthFlowError, match="callback failed"):
-            await perform_auto_login(
-                StaticAuthProvider("Bearer x"),
-                oauth_client,
-                CredentialStore(tmp_path / "creds.json"),
-            )
+            await perform_auto_login(provider, oauth_client, store)
     finally:
         await oauth_client.aclose()
     assert callback.closed is True

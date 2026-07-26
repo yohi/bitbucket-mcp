@@ -142,9 +142,11 @@ async def test_bitbucket_login_guides_manual_login_when_browser_login_unavailabl
     store = CredentialStore(tmp_path / "creds.json") if has_store else None
     monkeypatch.setattr("bitbucket_mcp.server.display_available", lambda: display_available)
 
+    provider = FakeProvider()
+    controller = AutoLoginController()
     try:
         with pytest.raises(ToolError, match=message):
-            server.bitbucket_login(FakeProvider(), AutoLoginController(), oauth_client, store)
+            server.bitbucket_login(provider, controller, oauth_client, store)
     finally:
         if oauth_client is not None:
             await oauth_client.aclose()
