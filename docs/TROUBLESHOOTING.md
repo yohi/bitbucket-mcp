@@ -162,7 +162,7 @@ export BITBUCKET_BASE_URL="https://api.bitbucket.org/2.0"
      "mcpServers": {
        "bitbucket": {
          "command": "uvx",
-         "args": ["bitbucket-mcp"],
+         "args": ["--from", "git+https://github.com/yohi/bitbucket-mcp", "bitbucket-mcp"],
          "env": {
            "BITBUCKET_TOKEN": "..."
          }
@@ -173,7 +173,7 @@ export BITBUCKET_BASE_URL="https://api.bitbucket.org/2.0"
 
 2. ターミナルで直接起動テスト：
    ```bash
-   uvx bitbucket-mcp 2>&1 | head -20
+   uvx --from git+https://github.com/yohi/bitbucket-mcp bitbucket-mcp 2>&1 | head -20
    ```
 
 3. Claude Desktop を再起動
