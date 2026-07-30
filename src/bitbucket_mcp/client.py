@@ -1,5 +1,7 @@
 """Bitbucket API への HTTP アクセスを担う httpx ラッパ。"""
 
+from __future__ import annotations
+
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -167,7 +169,7 @@ class BitbucketClient:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def __aenter__(self) -> "BitbucketClient":
+    async def __aenter__(self) -> BitbucketClient:
         return self
 
     async def __aexit__(
