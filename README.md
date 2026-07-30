@@ -4,8 +4,20 @@ Bitbucket Cloud REST API v2.0 を Model Context Protocol のツールとして�
 
 ## インストール & 起動（uvx）
 
+> ⚠️ **PyPI には同名の別パッケージ（[`bitbucket-mcp`](https://pypi.org/project/bitbucket-mcp/), 作者: Acendas）が既に存在します。**
+> 本リポジトリは **PyPI 未公開** のため、単に `uvx bitbucket-mcp` を実行するとその別パッケージが取得され（`ModuleNotFoundError: No module named 'bitbucket_mcp_server'` 等で失敗）、本ツールは一切動作しません。**必ず GitHub リポジトリを明示的に指定**してください。
+
+都度取得して実行（推奨）:
+
 ```bash
-uvx bitbucket-mcp
+uvx --from git+https://github.com/yohi/bitbucket-mcp bitbucket-mcp
+```
+
+コマンドとして常設したい場合（以降の例の `bitbucket-mcp ...` がそのまま使えます）:
+
+```bash
+uv tool install git+https://github.com/yohi/bitbucket-mcp
+bitbucket-mcp auth login
 ```
 
 またはローカル開発:
@@ -89,7 +101,7 @@ bitbucket-mcp --transport {stdio,http} [--host HOST] [--port PORT]
   "mcpServers": {
     "bitbucket": {
       "command": "uvx",
-      "args": ["bitbucket-mcp"],
+      "args": ["--from", "git+https://github.com/yohi/bitbucket-mcp", "bitbucket-mcp"],
       "env": {
         "BITBUCKET_EMAIL": "you@example.com",
         "BITBUCKET_API_TOKEN": "<api-token>",
